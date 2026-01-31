@@ -1,0 +1,24 @@
+{
+    "id": "com.nuvio.streams",
+    "version": "1.0.0",
+    "name": "Nuvio Streams",
+    "description": "High-performance Stremio addon providing streaming links from 34+ providers.",
+    "resources": [
+        "stream"
+    ],
+    "types": [
+        "movie",
+        "series",
+        "tv"
+    ],
+    "catalogs": [],
+    "idPrefixes": [
+        "tt",
+        "tmdb"
+    ],
+    "behaviorHints": {
+        "configurable": true,
+        "configurationRequired": false
+    },
+    "config": []
+}

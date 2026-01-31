@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://fsl.gigabytes.icu/IT.Welcome.to.Derry.S01E01.The.Pilot.2160p.HS.WEB-DL.AAC2.0.H.265-4kHdHub.Com.mkv?token=f768ef3e887cf105089d634b11fbe5c1",
+      "meta": {
+        "bytes": 4756676280,
+        "height": 2160,
+        "title": "IT.Welcome.to.Derry.S01E01.The.Pilot.2160p.HS.WEB-DL.AAC2.0.H.265-4kHdHub.Com.mkv"
+      }
+    },
+    {
+      "source": "FSL",
+      "url": "https://pub-b5ecaffddf2344a0ae2222f5e8913e1b.r2.dev/IT.Welcome.to.Derry.S01E01.The.Pilot.2160p.HS.WEB-DL.AAC2.0.H.265-4kHdHub.Com.mkv?token=1765986502",
+      "meta": {
+        "bytes": 4756676280,
+        "height": 2160,
+        "title": "IT.Welcome.to.Derry.S01E01.The.Pilot.2160p.HS.WEB-DL.AAC2.0.H.265-4kHdHub.Com.mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/duz4Y4Uw",
+      "meta": {
+        "bytes": 4756676280,
+        "height": 2160,
+        "title": "IT.Welcome.to.Derry.S01E01.The.Pilot.2160p.HS.WEB-DL.AAC2.0.H.265-4kHdHub.Com.mkv"
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://pub-b5ecaffddf2344a0ae2222f5e8913e1b.r2.dev/Stranger Things 2016 S01E04 1080p BluRay REMUX x264 AVC [Hindi DDP 5.1 640Kbps + English TruHD 5.1] ESub  FraMeSToR.mkv?token=1766036380",
+      "meta": {
+        "bytes": 10877004677,
+        "height": 1080,
+        "title": "Stranger Things (2016) S01E04 1080p BluRay REMUX x264 AVC [Hindi DDP 5.1 640Kbps + English TruHD 5.1] ESub  FraMeSToR.mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/gcoQdUJN",
+      "meta": {
+        "bytes": 10877004677,
+        "height": 1080,
+        "title": "Stranger Things (2016) S01E04 1080p BluRay REMUX x264 AVC [Hindi DDP 5.1 640Kbps + English TruHD 5.1] ESub  FraMeSToR.mkv"
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://pub-2fe28ab4d73e444bb8b6de678d39a70d.r2.dev/ce9d7fe493bc62282c0d3d0a509112fe?token=1765986648",
+      "meta": {
+        "bytes": 16030965432,
+        "height": 1080,
+        "title": "Fallout S01E07 1080p BluRay REMUX AVC [Hindi DDP 5.1 + English TrueHD Atmos 7.1] x264 (FraMeSToR-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/L1LxRMBC",
+      "meta": {
+        "bytes": 16030965432,
+        "height": 1080,
+        "title": "Fallout S01E07 1080p BluRay REMUX AVC [Hindi DDP 5.1 + English TrueHD Atmos 7.1] x264 (FraMeSToR-LUMiX).mkv"
+      }
+    }
+  ]
+}

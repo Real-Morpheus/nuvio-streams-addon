@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://pub-6b25c191839c4b01a878de4fdde0227b.r2.dev/d1adcd9d6751efa5500cd8725379d4ed?token=1765988538",
+      "meta": {
+        "bytes": 742045777,
+        "height": 1080,
+        "title": "Stranger Things S01E01 - [Ch. 1 ~ The Vanishing of Will Byers] 1080p 10bit BluRay (Hindi+Eng) DDP 5.1Ch HEVC ESubs ~ Strange.mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/9BhAE997",
+      "meta": {
+        "bytes": 742045777,
+        "height": 1080,
+        "title": "Stranger Things S01E01 - [Ch. 1 ~ The Vanishing of Will Byers] 1080p 10bit BluRay (Hindi+Eng) DDP 5.1Ch HEVC ESubs ~ Strange.mkv"
+      }
+    }
+  ]
+}

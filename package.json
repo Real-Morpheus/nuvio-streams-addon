@@ -1,0 +1,40 @@
+{
+  "name": "nuvio-streaming-addon",
+  "version": "0.5.10",
+  "description": "Stremio addon for HTTP streaming links",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "aromanize": "^0.1.5",
+    "axios": "^1.9.0",
+    "axios-cookiejar-support": "^6.0.2",
+    "body-parser": "^2.2.0",
+    "bytes": "^3.1.2",
+    "cheerio": "^1.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "fast-levenshtein": "^3.0.0",
+    "form-data": "^4.0.3",
+    "hls-parser": "^0.13.5",
+    "ioredis": "^5.6.1",
+    "node-fetch": "^2.7.0",
+    "p-limit": "^6.2.0",
+    "redis": "^5.5.5",
+    "rot13-cipher": "^1.0.0",
+    "ssh2": "^1.17.0",
+    "stremio-addon-sdk": "^1.6.10",
+    "string-similarity": "^4.0.4",
+    "tough-cookie": "^5.1.2",
+    "ttl-cache": "^1.0.2",
+    "ws": "^8.19.0",
+    "yargs": "^17.7.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "data": {
+    "adult": false,
+    "backdrop_path": "/lSffVt0etoSLyl2hsTREdJ1CnQ1.jpg",
+    "created_by": [
+      {
+        "id": 10730,
+        "credit_id": "67602a75f8631451b37e66fc",
+        "name": "Rowan Atkinson",
+        "original_name": "Rowan Atkinson",
+        "gender": 2,
+        "profile_path": "/gdiN2zLjC3Mnfrp7hM3TXVJjWJv.jpg"
+      },
+      {
+        "id": 21075,
+        "credit_id": "6914e1d3600d16f5aedd35c8",
+        "name": "William Davies",
+        "original_name": "William Davies",
+        "gender": 2,
+        "profile_path": "/tYiC1IshLfg5kzBCeFCkK2PvBSl.jpg"
+      }
+    ],
+    "episode_run_time": [],
+    "first_air_date": "2025-12-11",
+    "genres": [
+      {
+        "id": 35,
+        "name": "Comedy"
+      },
+      {
+        "id": 10751,
+        "name": "Family"
+      }
+    ],
+    "homepage": "https://www.netflix.com/title/81923753",
+    "id": 279601,
+    "in_production": false,
+    "languages": [
+      "en"
+    ],
+    "last_air_date": "2025-12-11",
+    "last_episode_to_air": {
+      "id": 6254208,
+      "name": "Chapter 4",
+      "overview": "An unexpected bit of news from the penthouse owners sends Trevor into a mad scramble to save Christmas — and the baby — from disaster.",
+      "vote_average": 7.167,
+      "vote_count": 6,
+      "air_date": "2025-12-11",
+      "episode_number": 4,
+      "episode_type": "finale",
+      "production_code": "",
+      "runtime": 38,
+      "season_number": 1,
+      "show_id": 279601,
+      "still_path": "/rpHweGjJKyl8SA9TdCFyveYYKMp.jpg"
+    },
+    "name": "Man vs Baby",
+    "next_episode_to_air": null,
+    "networks": [
+      {
+        "id": 213,
+        "logo_path": "/wwemzKWzjKYJFfCeiB57q3r4Bcm.png",
+        "name": "Netflix",
+        "origin_country": ""
+      }
+    ],
+    "number_of_episodes": 4,
+    "number_of_seasons": 1,
+    "origin_country": [
+      "GB"
+    ],
+    "original_language": "en",
+    "original_name": "Man vs Baby",
+    "overview": "As Christmas approaches, a blundering-all-the-way dad juggles housesitting a posh London penthouse with an unexpected pickle: caring for a lost baby.",
+    "popularity": 167.8194,
+    "poster_path": "/x7UZVTEr26H5yCSVQoKTeBdvUvg.jpg",
+    "production_companies": [
+      {
+        "id": 178208,
+        "logo_path": null,
+        "name": "HouseSitter Productions",
+        "origin_country": "GB"
+      }
+    ],
+    "production_countries": [
+      {
+        "iso_3166_1": "GB",
+        "name": "United Kingdom"
+      }
+    ],
+    "seasons": [
+      {
+        "air_date": "2025-12-11",
+        "episode_count": 4,
+        "id": 433341,
+        "name": "Season 1",
+        "overview": "",
+        "poster_path": "/x7UZVTEr26H5yCSVQoKTeBdvUvg.jpg",
+        "season_number": 1,
+        "vote_average": 7.3
+      }
+    ],
+    "spoken_languages": [
+      {
+        "english_name": "English",
+        "iso_639_1": "en",
+        "name": "English"
+      }
+    ],
+    "status": "Ended",
+    "tagline": "One baby. Endless disaster.",
+    "type": "Miniseries",
+    "vote_average": 6.9,
+    "vote_count": 70
+  }
+}

@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: nuvio-streams-app-v2
+    restart: always
+    ports:
+      - "7000:7000"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - nuvio-network-v3
+
+  caddy:
+    image: caddy:latest
+    container_name: caddy-v2
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data_v2:/data
+      - caddy_config_v2:/config
+    networks:
+      - nuvio-network-v3
+    depends_on:
+      - app
+
+networks:
+  nuvio-network-v3:
+    driver: bridge
+
+volumes:
+  caddy_data_v2:
+  caddy_config_v2:

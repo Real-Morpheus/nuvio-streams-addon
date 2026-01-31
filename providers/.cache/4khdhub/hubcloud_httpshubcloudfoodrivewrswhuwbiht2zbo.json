@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://pub-0cef6721657649918259091880efe12f.r2.dev/83cd75d736f12a23d32388ac8da24a4e?token=1768616131",
+      "meta": {
+        "bytes": 4788888535,
+        "height": 1080,
+        "title": "Fallout S01E02 1080p BluRay 10bit HEVC [Hindi DDP 5.1 + English DDP 7.1] x265 (WiKi-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/WP8LgCgn",
+      "meta": {
+        "bytes": 4788888535,
+        "height": 1080,
+        "title": "Fallout S01E02 1080p BluRay 10bit HEVC [Hindi DDP 5.1 + English DDP 7.1] x265 (WiKi-LUMiX).mkv"
+      }
+    }
+  ]
+}

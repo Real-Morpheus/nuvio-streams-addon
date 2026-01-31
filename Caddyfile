@@ -1,0 +1,14 @@
+{
+    email admin@nuvio.stremio.click
+}
+
+nuvio.stremio.click {
+    reverse_proxy app:7000
+    
+    header {
+        # Enable CORS
+        Access-Control-Allow-Origin *
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers *
+    }
+}

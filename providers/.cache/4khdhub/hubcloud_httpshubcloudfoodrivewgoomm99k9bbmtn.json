@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://cdn.fsl-buckets.work/IT - Welcome to Derry S01E01 2160p CRAV WEB-DL 10bit HEVC [Hindi AAC 2.0 + English DDPA 5.1] x265 PFix-LUMiX.mkv?token=f768ef3e887cf105089d634b11fbe5c1",
+      "meta": {
+        "bytes": 5186173009,
+        "height": 2160,
+        "title": "IT - Welcome to Derry S01E01 2160p CRAV WEB-DL 10bit HEVC [Hindi AAC 2.0 + English DDPA 5.1] x265 (PFix-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "FSL",
+      "url": "https://pub-6b25c191839c4b01a878de4fdde0227b.r2.dev/4b953dc21e3e0ede10ac2937c754df77?token=1765986513",
+      "meta": {
+        "bytes": 5186173009,
+        "height": 2160,
+        "title": "IT - Welcome to Derry S01E01 2160p CRAV WEB-DL 10bit HEVC [Hindi AAC 2.0 + English DDPA 5.1] x265 (PFix-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/biqz96r3",
+      "meta": {
+        "bytes": 5186173009,
+        "height": 2160,
+        "title": "IT - Welcome to Derry S01E01 2160p CRAV WEB-DL 10bit HEVC [Hindi AAC 2.0 + English DDPA 5.1] x265 (PFix-LUMiX).mkv"
+      }
+    }
+  ]
+}

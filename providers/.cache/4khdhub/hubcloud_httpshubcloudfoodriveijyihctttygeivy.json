@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://cdn.fsl-buckets.life/Stranger.Things.S05P02.1080p.NF.WEB-DL.Multi.DDP5.1.H.264-4kHdHub.Com.zip?token=fbf521c4e86c227c7746c8da9ce80dab",
+      "meta": {
+        "bytes": 14828374589,
+        "height": 1080,
+        "title": "Stranger.Things.S05P02.1080p.NF.WEB-DL.Multi.DDP5.1.H.264-4kHdHub.Com.zip"
+      }
+    },
+    {
+      "source": "FSL",
+      "url": "https://love.polgen.buzz/00a12a813d2b17e9c81da375ecd1ea65?token=1768781156",
+      "meta": {
+        "bytes": 14828374589,
+        "height": 1080,
+        "title": "Stranger.Things.S05P02.1080p.NF.WEB-DL.Multi.DDP5.1.H.264-4kHdHub.Com.zip"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/dymn8QP5",
+      "meta": {
+        "bytes": 14828374589,
+        "height": 1080,
+        "title": "Stranger.Things.S05P02.1080p.NF.WEB-DL.Multi.DDP5.1.H.264-4kHdHub.Com.zip"
+      }
+    }
+  ]
+}

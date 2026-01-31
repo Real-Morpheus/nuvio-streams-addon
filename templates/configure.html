@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nuvio Streams | Premium Stremio Addon</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+
+    <!-- Google Analytics 4 -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VQD9XG9K3C"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', 'G-VQD9XG9K3C');
+    </script>
+
+    <style>
+        :root {
+            --primary: #8c52ff;
+            --primary-glow: rgba(140, 82, 255, 0.5);
+            --secondary: #00d1ff;
+            --secondary-glow: rgba(0, 209, 255, 0.5);
+            --bg-dark: #050505;
+            --card-bg: rgba(15, 15, 20, 0.7);
+            --card-border: rgba(255, 255, 255, 0.1);
+            --text-main: #ffffff;
+            --text-dim: rgba(255, 255, 255, 0.6);
+            --success: #00ff88;
+            --error: #ff4d4d;
+            --warning: #ffcc00;
+            --glass-blur: 20px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+            background-image: url('/bg.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 50% 50%, rgba(140, 82, 255, 0.1) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            padding: 2rem;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .logo-container {
+            display: inline-block;
+            position: relative;
+            margin-bottom: 1rem;
+        }
+
+        .logo-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120%;
+            height: 120%;
+            background: var(--primary);
+            filter: blur(40px);
+            opacity: 0.3;
+            border-radius: 50%;
+            z-index: -1;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 700;
+            letter-spacing: -1px;
+            background: linear-gradient(135deg, #fff 0%, var(--primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .tagline {
+            font-size: 1.1rem;
+            color: var(--text-dim);
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            box-shadow: 0 25px 60px rgba(140, 82, 255, 0.1);
+        }
+
+        .section-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-title i {
+            color: var(--primary);
+        }
+
+        .input-group {
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-dim);
+            margin-bottom: 0.75rem;
+            margin-left: 0.5rem;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        input[type="text"],
+        select {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            color: #fff;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 4px var(--primary-glow);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: none;
+            width: 100%;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, #6a30d9 100%);
+            color: #fff;
+            box-shadow: 0 10px 20px rgba(140, 82, 255, 0.2);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px rgba(140, 82, 255, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            border: 1px solid var(--card-border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .provider-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .provider-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .provider-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--primary);
+        }
+
+        .provider-item.active {
+            background: rgba(140, 82, 255, 0.1);
+            border-color: var(--primary);
+        }
+
+        .checkbox-custom {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--card-border);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .provider-item.active .checkbox-custom {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .checkbox-custom::after {
+            content: '✓';
+            color: #fff;
+            font-size: 12px;
+            display: none;
+        }
+
+        .provider-item.active .checkbox-custom::after {
+            display: block;
+        }
+
+        .provider-name {
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-dim);
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-valid {
+            background: var(--success);
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        .status-invalid {
+            background: var(--error);
+            box-shadow: 0 0 10px var(--error);
+        }
+
+        .status-pending {
+            background: var(--warning);
+            box-shadow: 0 0 10px var(--warning);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(20, 20, 25, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--card-border);
+            padding: 1rem 2rem;
+            border-radius: 100px;
+            color: #fff;
+            font-weight: 500;
+            z-index: 1000;
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            white-space: nowrap;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .footer a:hover {
+            color: #fff;
+            text-decoration: underline;
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            .provider-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        /* Hide actual checkboxes */
+        .provider-checkbox {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo-container">
+                <div class="logo-glow"></div>
+                <h1>Nuvio</h1>
+            </div>
+            <p class="tagline">PREMIUM STREAMING EXPERIENCE</p>
+        </header>
+
+        <main class="card" id="configCard">
+            <section>
+                <h2 class="section-title">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    Configuration
+                </h2>
+
+                <div class="input-group">
+                    <label class="input-label" for="cookieInput">FebBox Cookie</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="cookieInput" placeholder="Paste your FebBox cookie here...">
+                        <div id="cookieStatusIndicator" class="status-indicator"
+                            style="position: absolute; right: 15px;"></div>
+                    </div>
+                    <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem; margin-left: 0.5rem;">
+                        Required for ShowBox provider. <a href="#" id="howToGetBtn" style="color: var(--primary);">How
+                            to get?</a>
+                    </p>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label" for="regionSelector">Preferred Region</label>
+                    <select id="regionSelector">
+                        <option value="Automatic">Automatic (Best Speed)</option>
+                        <option value="USA">United States</option>
+                        <option value="Europe">Europe</option>
+                        <option value="Asia">Asia</option>
+                    </select>
+                </div>
+
+                <h3 class="section-title" style="font-size: 1.2rem; margin-top: 2.5rem;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                        <line x1="6" y1="6" x2="6.01" y2="6" />
+                        <line x1="6" y1="18" x2="6.01" y2="18" />
+                    </svg>
+                    Providers
+                </h3>
+
+                <div class="provider-grid" id="providerGrid">
+                    <!-- Providers will be injected here -->
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                    <button id="setCookieBtn" class="btn btn-primary">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                        </svg>
+                        Save & Install
+                    </button>
+                </div>
+            </section>
+
+            <section id="manifestSection"
+                style="margin-top: 3rem; display: none; border-top: 1px solid var(--card-border); padding-top: 2rem;">
+                <h2 class="section-title">Your Manifest URL</h2>
+                <div class="input-group">
+                    <div class="input-wrapper">
+                        <input type="text" id="manifestUrl" readonly>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <a id="installBtn" href="#" class="btn btn-primary" style="flex: 2;">Install to Stremio</a>
+                    <button id="copyBtn" class="btn btn-secondary" style="flex: 1;">Copy URL</button>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2026 Nuvio Streams. Powered by <a href="https://elfhosted.com" target="_blank">ElfHosted</a>.</p>
+            <div style="margin-top: 1rem; display: flex; justify-content: center; gap: 1.5rem;">
+                <a href="https://discord.gg/6w8dr3TSDN" target="_blank">Discord</a>
+                <a href="https://github.com/masnuvio/nuvio-streams-addon" target="_blank">GitHub</a>
+                <a href="https://ko-fi.com/tapframe" target="_blank">Support</a>
+            </div>
+    </div>
+    </footer>
+    </div>
+
+    <div id="toast" class="toast">Settings Saved!</div>
+
+    <script>
+        const providers = [
+            { id: 'showbox', name: 'ShowBox', detail: 'Premium (Requires Cookie)', recommended: true },
+            { id: 'moviebox', name: 'MovieBox', detail: 'High Quality' },
+            { id: 'vidsrc', name: 'VidSrc', detail: 'Auto Quality' },
+            { id: 'vixsrc', name: 'VixSrc', detail: 'Auto Quality' },
+            { id: 'vidzee', name: 'VidZee', detail: 'Auto Quality' },
+            { id: 'uhdmovies', name: 'UHDMovies', detail: '4K/HDR Content' },
+            { id: 'moviesmod', name: 'MoviesMod', detail: 'High Quality' },
+            { id: '4khdhub', name: '4KHDHub', detail: '4K Content' },
+            { id: 'topmovies', name: 'TopMovies', detail: 'Bollywood/Indian' },
+            { id: 'streamflix', name: 'StreamFlix', detail: 'Fast' },
+            { id: 'videasy', name: 'Videasy', detail: 'Fast' },
+            { id: 'vidlink', name: 'VidLink', detail: 'Fast' },
+            { id: 'netmirror', name: 'NetMirror', detail: 'Fast' },
+            { id: 'castle', name: 'Castle', detail: 'Fast' }
+        ];
+
+        const providerGrid = document.getElementById('providerGrid');
+        const cookieInput = document.getElementById('cookieInput');
+        const regionSelector = document.getElementById('regionSelector');
+        const setCookieBtn = document.getElementById('setCookieBtn');
+        const manifestSection = document.getElementById('manifestSection');
+        const manifestUrlInput = document.getElementById('manifestUrl');
+        const installBtn = document.getElementById('installBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const toast = document.getElementById('toast');
+        const cookieStatusIndicator = document.getElementById('cookieStatusIndicator');
+
+        // Render Providers
+        providers.forEach(p => {
+            const item = document.createElement('div');
+            item.className = `provider-item ${p.recommended ? 'active' : ''}`;
+            item.innerHTML = `
+                <div class="checkbox-custom"></div>
+                <div style="flex: 1;">
+                    <div class="provider-name">${p.name}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-dim);">${p.detail}</div>
+                </div>
+                <input type="checkbox" class="provider-checkbox" value="${p.id}" ${p.recommended ? 'checked' : ''}>
+            `;
+
+            item.addEventListener('click', () => {
+                const cb = item.querySelector('.provider-checkbox');
+                cb.checked = !cb.checked;
+                item.classList.toggle('active', cb.checked);
+            });
+
+            providerGrid.appendChild(item);
+        });
+
+        function showToast(msg) {
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        async function checkCookie(cookie) {
+            if (!cookie) return;
+            cookieStatusIndicator.className = 'status-indicator status-pending';
+            try {
+                const resp = await fetch(`/api/check-cookie?cookie=${encodeURIComponent(cookie)}`);
+                const data = await resp.json();
+                if (data.valid) {
+                    cookieStatusIndicator.className = 'status-indicator status-valid';
+                } else {
+                    cookieStatusIndicator.className = 'status-indicator status-invalid';
+                }
+            } catch (e) {
+                cookieStatusIndicator.className = 'status-indicator';
+            }
+        }
+
+        cookieInput.addEventListener('blur', () => checkCookie(cookieInput.value.trim()));
+
+        setCookieBtn.addEventListener('click', () => {
+            const cookie = cookieInput.value.trim();
+            const region = regionSelector.value;
+            const selectedProviders = Array.from(document.querySelectorAll('.provider-checkbox:checked')).map(cb => cb.value);
+
+            if (selectedProviders.length === 0) {
+                showToast("Please select at least one provider.");
+                return;
+            }
+
+            const baseUrl = window.location.origin;
+            let configPath = '';
+
+            if (cookie) configPath += `cookie=${encodeURIComponent(cookie)}/`;
+            if (region !== 'Automatic') configPath += `region=${region}/`;
+            configPath += `providers=${selectedProviders.join(',')}/`;
+
+            const manifestUrl = `${baseUrl}/${configPath}manifest.json`;
+            manifestUrlInput.value = manifestUrl;
+            installBtn.href = manifestUrl.replace('https://', 'stremio://');
+            manifestSection.style.display = 'block';
+
+            showToast("Settings Applied!");
+
+            // Scroll to manifest section
+            manifestSection.scrollIntoView({ behavior: 'smooth' });
+        });
+
+        copyBtn.addEventListener('click', () => {
+            manifestUrlInput.select();
+            document.execCommand('copy');
+            showToast("URL Copied to Clipboard!");
+        });
+
+        // Prefill from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('cookie')) cookieInput.value = urlParams.get('cookie');
+        if (urlParams.has('region')) regionSelector.value = urlParams.get('region');
+        // ... more prefill logic can be added here
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://cdn.fsl-buckets.work/IT - Welcome to Derry S01E02 1080p AMZN WEB-DL [Hindi AAC 2.0 + English DDPA 5.1] x264 NTb-LUMiX.mkv?token=f768ef3e887cf105089d634b11fbe5c1",
+      "meta": {
+        "bytes": 4864050462,
+        "height": 1080,
+        "title": "IT - Welcome to Derry S01E02 1080p AMZN WEB-DL [Hindi AAC 2.0 + English DDPA 5.1] x264 (NTb-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "FSL",
+      "url": "https://pub-6b25c191839c4b01a878de4fdde0227b.r2.dev/7ccf932b18b13e1f0dc2ded4a669899c?token=1765986531",
+      "meta": {
+        "bytes": 4864050462,
+        "height": 1080,
+        "title": "IT - Welcome to Derry S01E02 1080p AMZN WEB-DL [Hindi AAC 2.0 + English DDPA 5.1] x264 (NTb-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/VwqDcYeL",
+      "meta": {
+        "bytes": 4864050462,
+        "height": 1080,
+        "title": "IT - Welcome to Derry S01E02 1080p AMZN WEB-DL [Hindi AAC 2.0 + English DDPA 5.1] x264 (NTb-LUMiX).mkv"
+      }
+    }
+  ]
+}

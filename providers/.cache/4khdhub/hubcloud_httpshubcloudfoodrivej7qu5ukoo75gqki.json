@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://pub-8665238777bb4575af3be7b624141905.r2.dev/Landman S01E01 1080p BluRay 10bit HEVC [Hindi AAC 2.0 + English DDP 5.1] x265 DarQ HONE-LUMiX.mkv?token=1765990017",
+      "meta": {
+        "bytes": 3199750635,
+        "height": 1080,
+        "title": "Landman S01E01 1080p BluRay 10bit HEVC [Hindi AAC 2.0 + English DDP 5.1] x265 (DarQ HONE-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/6cNRGsP7",
+      "meta": {
+        "bytes": 3199750635,
+        "height": 1080,
+        "title": "Landman S01E01 1080p BluRay 10bit HEVC [Hindi AAC 2.0 + English DDP 5.1] x265 (DarQ HONE-LUMiX).mkv"
+      }
+    }
+  ]
+}

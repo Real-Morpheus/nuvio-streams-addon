@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://fsl.master.surf/f5173a04e2d43c72cb68f91ac5b25950?token=1768584624",
+      "meta": {
+        "bytes": 896354222,
+        "height": 1080,
+        "title": "Stranger Things S03E06 - [Ch. 6 ~ E Pluribus Unum] 1080p 10bit BluRay (Hindi+Eng) DDP 5.1Ch HEVC ESubs ~ Strange.mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/KnrYypAH",
+      "meta": {
+        "bytes": 896354222,
+        "height": 1080,
+        "title": "Stranger Things S03E06 - [Ch. 6 ~ E Pluribus Unum] 1080p 10bit BluRay (Hindi+Eng) DDP 5.1Ch HEVC ESubs ~ Strange.mkv"
+      }
+    }
+  ]
+}

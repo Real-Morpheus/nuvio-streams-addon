@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://pub-b5ecaffddf2344a0ae2222f5e8913e1b.r2.dev/Stranger Things S01 E03 2160p 10bit BluRay x265 HEVC [Hindi DDP 5.1 640Kbps + English AAC 5.1] ESub.mkv?token=1766074329",
+      "meta": {
+        "bytes": 1889785610,
+        "height": 2160,
+        "title": "Stranger Things S01 E03 2160p 10bit BluRay x265 HEVC [Hindi DDP 5.1 640Kbps + English AAC 5.1] ESub.mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/UFAZX5qy",
+      "meta": {
+        "bytes": 1889785610,
+        "height": 2160,
+        "title": "Stranger Things S01 E03 2160p 10bit BluRay x265 HEVC [Hindi DDP 5.1 640Kbps + English AAC 5.1] ESub.mkv"
+      }
+    }
+  ]
+}

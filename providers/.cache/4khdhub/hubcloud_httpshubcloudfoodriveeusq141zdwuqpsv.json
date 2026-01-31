@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "source": "FSL",
+      "url": "https://pub-2fe28ab4d73e444bb8b6de678d39a70d.r2.dev/Landman S01E04 1080p BluRay REMUX AVC [Hindi AAC 2.0 + English TrueHD 5.1] x264 TRiToN-LUMiX.mkv?token=1765990159",
+      "meta": {
+        "bytes": 8922794557,
+        "height": 1080,
+        "title": "Landman S01E04 1080p BluRay REMUX AVC [Hindi AAC 2.0 + English TrueHD 5.1] x264 (TRiToN-LUMiX).mkv"
+      }
+    },
+    {
+      "source": "PixelServer",
+      "url": "https://pixeldrain.dev/api/file/wjMvdMGp",
+      "meta": {
+        "bytes": 8922794557,
+        "height": 1080,
+        "title": "Landman S01E04 1080p BluRay REMUX AVC [Hindi AAC 2.0 + English TrueHD 5.1] x264 (TRiToN-LUMiX).mkv"
+      }
+    }
+  ]
+}
