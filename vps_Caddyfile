@@ -1,7 +1,0 @@
-{
-    email admin@nuvio.stremio.click
-}
-
-nuvio.stremio.click {
-    reverse_proxy app:7000
-}
