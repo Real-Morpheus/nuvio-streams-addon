@@ -9,6 +9,7 @@ services:
       - "7000:7000"
     environment:
       - NODE_ENV=production
+      - H_PROXY=socks5h://127.0.0.1:9050
     networks:
       - nuvio-network-v3
 

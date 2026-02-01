@@ -504,8 +504,14 @@ app.get('/vidlink/segment', async (req, res) => {
 
 // --- NetMirror Proxy Routes (Must be before /:token) ---
 app.get('/netmirror/m3u8', async (req, res) => {
-    const { url: streamUrl, cookie } = req.query;
+    let { url: streamUrl, cookie } = req.query;
     if (!streamUrl) return res.status(400).send('Missing url');
+
+    // FIX: Force rewrite old/broken domains in request to working domain
+    if (streamUrl.includes('net51.cc') || streamUrl.includes('net52.cc')) {
+        console.log(`[NetMirror Proxy] Rewriting legacy domain in URL: ${streamUrl.substring(0, 100)}...`);
+        streamUrl = streamUrl.replace(/net5[12]\.cc/, 'net20.cc');
+    }
 
     console.log(`[NetMirror Proxy] Fetching M3U8: ${streamUrl.substring(0, 150)}`);
 
@@ -513,7 +519,7 @@ app.get('/netmirror/m3u8', async (req, res) => {
         const isNfOrPv = streamUrl.includes('nf.') || streamUrl.includes('pv.') || streamUrl.includes('/nf/') || streamUrl.includes('/pv/');
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': isNfOrPv ? 'https://net51.cc/' : 'https://net51.cc/tv/home',
+            'Referer': isNfOrPv ? 'https://net20.cc/' : 'https://net20.cc/tv/home',
             'Accept': 'application/vnd.apple.mpegurl, video/mp4, */*'
         };
 
@@ -521,10 +527,9 @@ app.get('/netmirror/m3u8', async (req, res) => {
             headers['Cookie'] = cookie;
         }
 
-        const response = await axios.get(streamUrl, {
-            headers,
+        const response = await fetchWithCurlFallback(streamUrl, headers, {
             timeout: 20000,
-            responseType: 'text' // Force text response to avoid automatic JSON parsing
+            responseType: 'text'
         });
         let m3u8Content = response.data;
 
@@ -605,14 +610,19 @@ app.get('/netmirror/m3u8', async (req, res) => {
 });
 
 app.get('/netmirror/segment', async (req, res) => {
-    const { url: targetUrl, cookie } = req.query;
+    let { url: targetUrl, cookie } = req.query;
     if (!targetUrl) return res.status(400).send('Missing url');
+
+    // FIX: Force rewrite old/broken domains in request to working domain
+    if (targetUrl.includes('net51.cc') || targetUrl.includes('net52.cc')) {
+        targetUrl = targetUrl.replace(/net5[12]\.cc/, 'net20.cc');
+    }
 
     try {
         const isNfOrPv = targetUrl.includes('nf.') || targetUrl.includes('pv.') || targetUrl.includes('/nf/') || targetUrl.includes('/pv/');
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': isNfOrPv ? 'https://net51.cc/' : 'https://net51.cc/tv/home',
+            'Referer': isNfOrPv ? 'https://net20.cc/' : 'https://net20.cc/tv/home',
             'Accept': 'application/vnd.apple.mpegurl, video/mp4, */*'
         };
 
@@ -620,8 +630,7 @@ app.get('/netmirror/segment', async (req, res) => {
             headers['Cookie'] = cookie;
         }
 
-        const response = await axios.get(targetUrl, {
-            headers,
+        const response = await fetchWithCurlFallback(targetUrl, headers, {
             responseType: 'stream',
             timeout: 30000
         });

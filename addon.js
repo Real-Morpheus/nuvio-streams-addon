@@ -147,7 +147,7 @@ const ENABLE_STREAM_CACHE = process.env.DISABLE_STREAM_CACHE !== 'true'; // Enab
 console.log(`[addon.js] Stream links caching ${ENABLE_STREAM_CACHE ? 'enabled' : 'disabled'}`);
 console.log(`[addon.js] Redis caching ${redis ? 'available' : 'not available'}`);
 const { getUHDMoviesStreams } = require('./providers/uhdmovies.js');
-const { getMoviesModStreams } = require('./providers/moviesmod.js');
+const { getStreams: getMoviesModStreams } = require('./providers/moviesmod.js');
 const { getTopMoviesStreams } = require('./providers/topmovies.js');
 
 // NEW: Read environment variable for MoviesDrive
@@ -158,7 +158,7 @@ const { getMoviesDriveStreams } = require('./providers/moviesdrive.js');
 // NEW: Read environment variable for 4KHDHub
 const ENABLE_4KHDHUB_PROVIDER = process.env.ENABLE_4KHDHUB_PROVIDER !== 'false';
 console.log(`[addon.js] 4KHDHub provider fetching enabled: ${ENABLE_4KHDHUB_PROVIDER}`);
-const { get4KHDHubStreams } = require('./providers/4khdhub.js');
+const { getStreams: get4KHDHubStreams } = require('./providers/4khdhub.js');
 
 // Provider enable flags for kept providers
 const ENABLE_HDHUB4U_PROVIDER = process.env.ENABLE_HDHUB4U_PROVIDER !== 'false';
@@ -171,10 +171,10 @@ const { getStreams: getStreamFlixStreams } = require('./providers/streamflix.js'
 const { getStreams: getVideasyStreams } = require('./providers/videasy.js');
 const { getStreams: getVidLinkStreams } = require('./providers/vidlink.js');
 
-// NEW: Read environment variable for NetMirror
-const ENABLE_NETMIRROR_PROVIDER = process.env.ENABLE_NETMIRROR_PROVIDER !== 'false';
-console.log(`[addon.js] NetMirror provider: env=${process.env.ENABLE_NETMIRROR_PROVIDER}, enabled=${ENABLE_NETMIRROR_PROVIDER}`);
-const { getStreams: getNetMirrorStreams } = require('./providers/netmirror.js');
+// NetMirror provider - DISABLED
+const ENABLE_NETMIRROR_PROVIDER = false;
+// console.log(`[addon.js] NetMirror provider: env=${process.env.ENABLE_NETMIRROR_PROVIDER}, enabled=${ENABLE_NETMIRROR_PROVIDER}`);
+// const { getStreams: getNetMirrorStreams } = require('./providers/netmirror.js');
 
 // NEW: Read environment variable for Castle
 const ENABLE_CASTLE_PROVIDER = process.env.ENABLE_CASTLE_PROVIDER !== 'false';
@@ -1603,7 +1603,7 @@ builder.defineStreamHandler(async (args) => {
     // Execute all provider fetches in parallel with a global timeout for each
     console.log('Running parallel provider fetches with caching and timeouts...');
 
-    const PROVIDER_FETCH_TIMEOUT = 45000; // 45 seconds per provider
+    const PROVIDER_FETCH_TIMEOUT = 60000; // 60 seconds per provider (increased for Tor latency)
 
     const providerPromises = Object.entries(providerFetchFunctions).map(async ([name, fetchFn]) => {
         try {
@@ -1621,10 +1621,12 @@ builder.defineStreamHandler(async (args) => {
         }
     });
 
-    const allStreamsResults = await Promise.all(providerPromises);
+    const allStreamsResults = await Promise.allSettled(providerPromises);
 
-    // Process results into streamsByProvider object
-    const providerResults = allStreamsResults;
+    // Process results into streamsByProvider object (extract fulfilled values)
+    const providerResults = allStreamsResults.map(result =>
+        result.status === 'fulfilled' ? result.value : []
+    );
 
     // Combine streams in the preferred provider order
     combinedRawStreams = [];
@@ -1663,7 +1665,7 @@ builder.defineStreamHandler(async (args) => {
         });
     }
 
-    const providerOrder = ['ShowBox', 'MovieBox', 'NetMirror', 'Castle', 'VFlix', 'UHDMovies', '4KHDHub', 'MoviesMod', 'TopMovies', 'MoviesDrive', 'Soaper TV', 'VidZee', 'MP4Hydra', 'VidSrc', 'Vixsrc', 'AnimeKai', 'Cinevibe', 'DahmerMovies', 'DVDPlay', 'HDHub4u', 'MalluMV', 'Mapple', 'StreamFlix', 'Videasy', 'VidLink', 'VidNestAnime', 'VidNest', 'VidRock', 'Watch32', 'Xprime', 'Yflix'];
+    const providerOrder = ['ShowBox', 'MovieBox', 'Castle', 'UHDMovies', '4KHDHub', 'MoviesMod', 'TopMovies', 'MoviesDrive', 'StreamFlix', 'Videasy', 'VidLink', 'HDHub4u'];
     providerOrder.forEach(providerKey => {
         // Find the matching key in streamsByProvider (case-insensitive-ish)
         const actualKey = Object.keys(streamsByProvider).find(k => k.toLowerCase() === providerKey.toLowerCase());
@@ -1685,7 +1687,7 @@ builder.defineStreamHandler(async (args) => {
     // Format and send the response
     const stremioStreamObjects = combinedRawStreams.map((stream) => {
         // --- DEBUG: Log streams from specific providers ---
-        if (['moviebox', 'netmirror', 'vidlink'].includes(stream.provider.toLowerCase())) {
+        if (['moviebox', 'vidlink'].includes(stream.provider.toLowerCase())) {
             console.log(`[Proxy Check] Processing stream from ${stream.provider}: ${stream.url}`);
             if (stream.headers) {
                 console.log(`[Proxy Check] Headers present: ${JSON.stringify(stream.headers)}`);

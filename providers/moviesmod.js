@@ -38,7 +38,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 const cheerio = require("cheerio");
-console.log("[MoviesMod] Using cheerio-without-node-native for DOM parsing");
+console.log("[MoviesMod] Using cheerio for DOM parsing");
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -895,7 +895,7 @@ function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = 
   });
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getMoviesModStreams: getStreams };
+  module.exports = { getStreams };
 } else {
-  global.getMoviesModStreams = getStreams;
+  global.getStreams = getStreams;
 }
