@@ -1,278 +1,1438 @@
 // ================================================================================
 // Nuvio Streams Addon for Stremio
 // ================================================================================
-
+//
+// GOOGLE ANALYTICS SETUP:
+// 1. Go to https://analytics.google.com/ and create a new GA4 property
+// 2. Get your Measurement ID (format: G-XXXXXXXXXX)
+// 3. Replace 'G-XXXXXXXXXX' in views/index.html with your actual Measurement ID
+// 4. The addon will automatically track:
+// - Addon installations (install_addon_clicked)
+// - Manifest copies (copy_manifest_clicked)
+// - Provider configurations (apply_providers_clicked)
+// - Cookie configurations (set_cookie_clicked)
+// - Tutorial access (cookie_tutorial_opened)
+// - Stream requests (will be added to server-side logging)
+//
+// ================================================================================
 const { addonBuilder } = require('stremio-addon-sdk');
-require('dotenv').config();
+require('dotenv').config(); // Ensure environment variables are loaded
 const fs = require('fs').promises;
 const path = require('path');
-const crypto = require('crypto');
+const crypto = require('crypto'); // For hashing cookies
 const Redis = require('ioredis');
-
+// Add Redis client if enabled
 const USE_REDIS_CACHE = process.env.USE_REDIS_CACHE === 'true';
 let redis = null;
-let redisKeepAliveInterval = null;
-
+let redisKeepAliveInterval = null; // Variable to manage the keep-alive interval
 if (USE_REDIS_CACHE) {
     try {
-        if (!process.env.REDIS_URL) throw new Error("REDIS_URL not set");
+        console.log(`[Redis Cache] Initializing Redis in addon.js. REDIS_URL from env: ${process.env.REDIS_URL ? 'exists and has value' : 'MISSING or empty'}`);
+        if (!process.env.REDIS_URL) {
+            throw new Error("REDIS_URL environment variable is not set or is empty.");
+        }
+        // Check if this is a local Redis instance or remote
+        const isLocal = process.env.REDIS_URL.includes('localhost') || process.env.REDIS_URL.includes('127.0.0.1');
         redis = new Redis(process.env.REDIS_URL, {
             maxRetriesPerRequest: 5,
-            retryStrategy: times => Math.min(times * 500, 5000),
-            reconnectOnError: err => err.message.includes('READONLY'),
+            retryStrategy(times) {
+                const delay = Math.min(times * 500, 5000);
+                // Added verbose logging for each retry attempt
+                console.warn(`[Redis Cache] Retry strategy activated. Attempt #${times}, will retry in ${delay}ms`);
+                return delay;
+            },
+            reconnectOnError: function (err) {
+                const targetError = 'READONLY';
+                const shouldReconnect = err.message.includes(targetError);
+                // Added detailed logging for reconnectOnError decisions
+                console.warn(`[Redis Cache] reconnectOnError invoked due to error: "${err.message}". Decided to reconnect: ${shouldReconnect}`);
+                return shouldReconnect;
+            },
+            // TLS is optional - only use if explicitly specified with rediss:// protocol
             tls: process.env.REDIS_URL.startsWith('rediss://') ? {} : undefined,
             enableOfflineQueue: true,
             enableReadyCheck: true,
             autoResubscribe: true,
+            autoResendUnfulfilledCommands: true,
             lazyConnect: false
         });
-
-        redis.on('connect', () => {
-            console.log('[Redis] Connected');
-            if (redisKeepAliveInterval) clearInterval(redisKeepAliveInterval);
-            redisKeepAliveInterval = setInterval(() => redis.ping().catch(() => {}), 4 * 60 * 1000);
+        redis.on('error', (err) => {
+            console.error(`[Redis Cache] Connection error: ${err.message}`);
+            // --- BEGIN: Clear Keep-Alive on Error ---
+            if (redisKeepAliveInterval) {
+                clearInterval(redisKeepAliveInterval);
+                redisKeepAliveInterval = null;
+            }
+            // --- END: Clear Keep-Alive on Error ---
         });
-
-        redis.on('error', err => console.error('[Redis] Error:', err.message));
-        redis.on('reconnecting', delay => console.warn(`[Redis] Reconnecting in ${delay}ms`));
-        redis.on('close', () => console.warn('[Redis] Connection closed'));
-        redis.on('end', () => console.error('[Redis] Connection ended'));
+        redis.on('connect', () => {
+            console.log('[Redis Cache] Successfully connected to Upstash Redis');
+            // --- BEGIN: Redis Keep-Alive ---
+            if (redisKeepAliveInterval) {
+                clearInterval(redisKeepAliveInterval);
+            }
+            redisKeepAliveInterval = setInterval(() => {
+                if (redis && redis.status === 'ready') {
+                    redis.ping((err) => {
+                        if (err) {
+                            console.error('[Redis Cache Keep-Alive] Ping failed:', err.message);
+                        }
+                    });
+                }
+            }, 4 * 60 * 1000); // 4 minutes
+            // --- END: Redis Keep-Alive ---
+        });
+        // --- BEGIN: Additional Redis connection lifecycle logging ---
+        redis.on('reconnecting', (delay) => {
+            console.warn(`[Redis Cache] Reconnecting... next attempt in ${delay}ms (current status: ${redis.status})`);
+        });
+        redis.on('close', () => {
+            console.warn('[Redis Cache] Connection closed.');
+        });
+        redis.on('end', () => {
+            console.error('[Redis Cache] Connection ended. No further reconnection attempts will be made.');
+        });
+        redis.on('ready', () => {
+            console.log('[Redis Cache] Connection is ready and commands can now be processed.');
+        });
+        // --- END: Additional Redis connection lifecycle logging ---
+        console.log('[Redis Cache] Upstash Redis client initialized');
     } catch (err) {
-        console.error('[Redis] Init failed:', err.message);
-        redis = null;
+        console.error(`[Redis Cache] Failed to initialize Redis: ${err.message}`);
+        console.log('[Redis Cache] Will use file-based cache as fallback');
     }
 }
 
-// =============================================================================
-// Provider enable flags & imports (only allowed providers)
-// =============================================================================
+// NEW: Read environment variables for enabled providers
+// Castle provider
+const ENABLE_CASTLE_PROVIDER = process.env.ENABLE_CASTLE_PROVIDER !== 'false';
+console.log(`[addon.js] Castle provider fetching enabled: ${ENABLE_CASTLE_PROVIDER}`);
 
-const ENABLE_CASTLE_PROVIDER     = process.env.ENABLE_CASTLE_PROVIDER     !== 'false';
-const ENABLE_HDHUB4U_PROVIDER    = process.env.ENABLE_HDHUB4U_PROVIDER    !== 'false';
-const ENABLE_HIANIME_PROVIDER    = process.env.ENABLE_HIANIME_PROVIDER    !== 'false';
-const ENABLE_MOVIEBOX_PROVIDER   = process.env.ENABLE_MOVIEBOX_PROVIDER   !== 'false';
-const ENABLE_MOVIESDRIVE_PROVIDER= process.env.ENABLE_MOVIESDRIVE_PROVIDER!== 'false';
-const ENABLE_NETMIRROR_PROVIDER  = process.env.ENABLE_NETMIRROR_PROVIDER  !== 'false';
+// HDHub4u provider
+const ENABLE_HDHUB4U_PROVIDER = process.env.ENABLE_HDHUB4U_PROVIDER !== 'false';
+console.log(`[addon.js] HDHub4u provider fetching enabled: ${ENABLE_HDHUB4U_PROVIDER}`);
+
+// HiAnime provider (assuming this is a new provider)
+const ENABLE_HIANIME_PROVIDER = process.env.ENABLE_HIANIME_PROVIDER !== 'false';
+console.log(`[addon.js] HiAnime provider fetching enabled: ${ENABLE_HIANIME_PROVIDER}`);
+
+// MovieBox provider
+const ENABLE_MOVIEBOX_PROVIDER = process.env.ENABLE_MOVIEBOX_PROVIDER !== 'false';
+console.log(`[addon.js] MovieBox provider fetching enabled: ${ENABLE_MOVIEBOX_PROVIDER}`);
+
+// MoviesDrive provider
+const ENABLE_MOVIESDRIVE_PROVIDER = process.env.ENABLE_MOVIESDRIVE_PROVIDER !== 'false';
+console.log(`[addon.js] MoviesDrive provider fetching enabled: ${ENABLE_MOVIESDRIVE_PROVIDER}`);
+
+// NetMirror provider
+const ENABLE_NETMIRROR_PROVIDER = process.env.ENABLE_NETMIRROR_PROVIDER !== 'false';
+console.log(`[addon.js] NetMirror provider fetching enabled: ${ENABLE_NETMIRROR_PROVIDER}`);
+
+// StreamFlix provider
 const ENABLE_STREAMFLIX_PROVIDER = process.env.ENABLE_STREAMFLIX_PROVIDER !== 'false';
-const ENABLE_VIDLINK_PROVIDER    = process.env.ENABLE_VIDLINK_PROVIDER    !== 'false';
-const ENABLE_XDMOVIES_PROVIDER   = process.env.ENABLE_XDMOVIES_PROVIDER   !== 'false';
+console.log(`[addon.js] StreamFlix provider fetching enabled: ${ENABLE_STREAMFLIX_PROVIDER}`);
 
-console.log(`
-Enabled providers:
-  Castle      : ${ENABLE_CASTLE_PROVIDER}
-  HDHub4u     : ${ENABLE_HDHUB4U_PROVIDER}
-  HiAnime     : ${ENABLE_HIANIME_PROVIDER}
-  MovieBox    : ${ENABLE_MOVIEBOX_PROVIDER}
-  MoviesDrive : ${ENABLE_MOVIESDRIVE_PROVIDER}
-  NetMirror   : ${ENABLE_NETMIRROR_PROVIDER}
-  StreamFlix  : ${ENABLE_STREAMFLIX_PROVIDER}
-  VidLink     : ${ENABLE_VIDLINK_PROVIDER}
-  XDMovies    : ${ENABLE_XDMOVIES_PROVIDER}
-`);
+// VidLink provider
+const ENABLE_VIDLINK_PROVIDER = process.env.ENABLE_VIDLINK_PROVIDER !== 'false';
+console.log(`[addon.js] VidLink provider fetching enabled: ${ENABLE_VIDLINK_PROVIDER}`);
 
-const { getStreams: getCastleStreams }     = require('./providers/castle.js');
-const { getStreams: getHDHub4uStreams }    = require('./providers/hdhub4u.js');
-const { getStreams: getHiAnimeStreams }    = require('./providers/hianime.js');
-const { getStreams: getMovieBoxStreams }   = require('./providers/moviebox.js');
-const { getMoviesDriveStreams }            = require('./providers/moviesdrive.js');
-const { getStreams: getNetMirrorStreams }  = require('./providers/netmirror.js');
+// XD Movies provider (assuming this is a new provider)
+const ENABLE_XDMOVIES_PROVIDER = process.env.ENABLE_XDMOVIES_PROVIDER !== 'false';
+console.log(`[addon.js] XDMovies provider fetching enabled: ${ENABLE_XDMOVIES_PROVIDER}`);
+
+// ShowBox provider (keeping as base provider)
+const ENABLE_SHOWBOX_PROVIDER = process.env.ENABLE_SHOWBOX_PROVIDER !== 'false';
+console.log(`[addon.js] ShowBox provider fetching enabled: ${ENABLE_SHOWBOX_PROVIDER}`);
+
+// Import provider functions
+const { getStreams: getCastleStreams } = require('./providers/castle.js');
+const { getStreams: getHDHub4uStreams } = require('./providers/hdhub4u.js');
+// const { getStreams: getHiAnimeStreams } = require('./providers/hianime.js'); // Uncomment when provider file exists
+const { getStreams: getMovieBoxStreams } = require('./providers/moviebox.js');
+const { getMoviesDriveStreams } = require('./providers/moviesdrive.js');
+const { getStreams: getNetMirrorStreams } = require('./providers/netmirror.js');
 const { getStreams: getStreamFlixStreams } = require('./providers/streamflix.js');
-const { getStreams: getVidLinkStreams }    = require('./providers/vidlink.js');
-const { getStreams: getXDMoviesStreams }   = require('./providers/xdmovies.js');
+const { getStreams: getVidLinkStreams } = require('./providers/vidlink.js');
+// const { getStreams: getXDMoviesStreams } = require('./providers/xdmovies.js'); // Uncomment when provider file exists
 
-const axios = require('axios');
+const axios = require('axios'); // For external provider requests
+
+// --- Analytics Configuration ---
+const GA_MEASUREMENT_ID = process.env.GA_MEASUREMENT_ID;
+const GA_API_SECRET = process.env.GA_API_SECRET;
+const ANALYTICS_ENABLED = GA_MEASUREMENT_ID && GA_API_SECRET;
+if (ANALYTICS_ENABLED) {
+    console.log(`[Analytics] GA4 Measurement Protocol is enabled. Tracking to ID: ${GA_MEASUREMENT_ID}`);
+} else {
+    console.log('[Analytics] GA4 Measurement Protocol is disabled. Set GA_MEASUREMENT_ID and GA_API_SECRET to enable.');
+}
+
+// --- Constants ---
+const TMDB_API_URL = 'https://api.themoviedb.org/3';
+const TMDB_API_KEY = process.env.TMDB_API_KEY;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
+
+// NEW: Stream caching config
+const STREAM_CACHE_DIR = process.env.VERCEL ? path.join('/tmp', '.streams_cache') : path.join(__dirname, '.streams_cache');
+const STREAM_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const ENABLE_STREAM_CACHE = process.env.DISABLE_STREAM_CACHE !== 'true'; // Enabled by default
+console.log(`[addon.js] Stream links caching ${ENABLE_STREAM_CACHE ? 'enabled' : 'disabled'}`);
+console.log(`[addon.js] Redis caching ${redis ? 'available' : 'not available'}`);
+
+// Scraper configuration
+console.log(`[addon.js] Scraper initialized`);
+
+// Helper function to wrap stream URLs (Proxy disabled)
+function wrapStreamUrl(url, headers = null) {
+    // Mediaflow Proxy removed by user request
+    return url;
+}
+
+// Default to proxy/direct mode with Showbox.js
+console.log('Using proxy/direct mode with Showbox.js');
+const scraper = require('./providers/showbox.js');
+
+// Destructure the required functions from the selected scraper
+const { getStreamsFromTmdbId, convertImdbToTmdb, sortStreamsByQuality } = scraper;
+
 const manifest = require('./manifest.json');
 
+// Initialize the addon
 const builder = new addonBuilder(manifest);
 
-// =============================================================================
-// Cache & utility helpers (kept almost unchanged)
-// =============================================================================
+// --- Helper Functions ---
 
-const STREAM_CACHE_DIR = process.env.VERCEL ? path.join('/tmp', '.streams_cache') : path.join(__dirname, '.streams_cache');
-const STREAM_CACHE_TTL_MS = 30 * 60 * 1000;
-const ENABLE_STREAM_CACHE = process.env.DISABLE_STREAM_CACHE !== 'true';
+// Helper function to parse quality strings into numerical values
+function parseQuality(qualityString) {
+    if (!qualityString || typeof qualityString !== 'string') {
+        return 0; // Default for unknown or undefined
+    }
+    const q = qualityString.toLowerCase();
+    if (q.includes('4k') || q.includes('2160')) return 2160;
+    if (q.includes('1440')) return 1440;
+    if (q.includes('1080')) return 1080;
+    if (q.includes('720')) return 720;
+    if (q.includes('576')) return 576;
+    if (q.includes('480')) return 480;
+    if (q.includes('360')) return 360;
+    if (q.includes('240')) return 240;
+    // Handle kbps by extracting number, e.g., "2500k" -> 2.5 (lower than p values)
+    const kbpsMatch = q.match(/(\d+)k/);
+    if (kbpsMatch && kbpsMatch[1]) {
+        return parseInt(kbpsMatch[1], 10) / 1000; // Convert to a small number relative to pixel heights
+    }
+    if (q.includes('hd')) return 720; // Generic HD
+    if (q.includes('sd')) return 480; // Generic SD
+    // Lower quality tags
+    if (q.includes('cam') || q.includes('camrip')) return 100;
+    if (q.includes('ts') || q.includes('telesync')) return 200;
+    if (q.includes('scr') || q.includes('screener')) return 300;
+    if (q.includes('dvdscr')) return 350;
+    if (q.includes('r5') || q.includes('r6')) return 400;
+    if (q.includes('org')) return 4320; // Treat original uploads as higher than 4K
+    return 0; // Default for anything else not recognized
+}
 
+// Helper function to parse size strings into a number (in MB)
+function parseSize(sizeString) {
+    if (!sizeString || typeof sizeString !== 'string') {
+        return 0;
+    }
+    const match = sizeString.match(/([0-9.,]+)\s*(GB|MB|KB)/i);
+    if (!match) {
+        return 0;
+    }
+    const sizeValue = parseFloat(match[1].replace(/,/g, ''));
+    const unit = match[2].toUpperCase();
+    if (unit === 'GB') {
+        return sizeValue * 1024;
+    } else if (unit === 'MB') {
+        return sizeValue;
+    } else if (unit === 'KB') {
+        return sizeValue / 1024;
+    }
+    return 0;
+}
+
+// Helper function to filter streams by minimum quality
+function filterStreamsByQuality(streams, minQualitySetting, providerName) {
+    if (!minQualitySetting || minQualitySetting.toLowerCase() === 'all') {
+        console.log(`[${providerName}] No minimum quality filter applied (set to 'all' or not specified).`);
+        return streams; // No filtering needed
+    }
+    const minQualityNumeric = parseQuality(minQualitySetting);
+    if (minQualityNumeric === 0 && minQualitySetting.toLowerCase() !== 'all') { // Check if minQualitySetting was something unrecognized
+        console.warn(`[${providerName}] Minimum quality setting '${minQualitySetting}' was not recognized. No filtering applied.`);
+        return streams;
+    }
+    console.log(`[${providerName}] Filtering streams. Minimum quality: ${minQualitySetting} (Parsed as: ${minQualityNumeric}). Original count: ${streams.length}`);
+    const filteredStreams = streams.filter(stream => {
+        const streamQualityNumeric = parseQuality(stream.quality);
+        return streamQualityNumeric >= minQualityNumeric;
+    });
+    console.log(`[${providerName}] Filtered count: ${filteredStreams.length}`);
+    return filteredStreams;
+}
+
+// Helper function to filter streams by excluding specific codecs
+function filterStreamsByCodecs(streams, excludeCodecSettings, providerName) {
+    if (!excludeCodecSettings || Object.keys(excludeCodecSettings).length === 0) {
+        console.log(`[${providerName}] No codec exclusions applied.`);
+        return streams; // No filtering needed
+    }
+    const excludeDV = excludeCodecSettings.excludeDV === true;
+    const excludeHDR = excludeCodecSettings.excludeHDR === true;
+    if (!excludeDV && !excludeHDR) {
+        console.log(`[${providerName}] No codec exclusions enabled.`);
+        return streams;
+    }
+    console.log(`[${providerName}] Filtering streams. Exclude DV: ${excludeDV}, Exclude HDR: ${excludeHDR}. Original count: ${streams.length}`);
+    const filteredStreams = streams.filter(stream => {
+        if (!stream.codecs || !Array.isArray(stream.codecs)) {
+            return true; // Keep streams without codec information
+        }
+        // Check for DV exclusion
+        if (excludeDV && stream.codecs.includes('DV')) {
+            console.log(`[${providerName}] Excluding stream with DV codec: ${stream.title || stream.url}`);
+            return false;
+        }
+        // Check for HDR exclusion (including HDR, HDR10, HDR10+)
+        if (excludeHDR && (stream.codecs.includes('HDR') || stream.codecs.includes('HDR10') || stream.codecs.includes('HDR10+'))) {
+            console.log(`[${providerName}] Excluding stream with HDR codec: ${stream.title || stream.url}`);
+            return false;
+        }
+        return true; // Keep the stream
+    });
+    console.log(`[${providerName}] After codec filtering count: ${filteredStreams.length}`);
+    return filteredStreams;
+}
+
+// Helper function that combines both quality and codec filtering
+function applyAllStreamFilters(streams, providerName, minQualitySetting, excludeCodecSettings) {
+    // Apply quality filtering first
+    let filteredStreams = filterStreamsByQuality(streams, minQualitySetting, providerName);
+    // Then apply codec filtering
+    filteredStreams = filterStreamsByCodecs(filteredStreams, excludeCodecSettings, providerName);
+    return filteredStreams;
+}
+
+async function fetchWithRetry(url, options, maxRetries = MAX_RETRIES) {
+    const { default: fetchFunction } = await import('node-fetch'); // Dynamically import
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetchFunction(url, options); // Use the dynamically imported function
+            if (!response.ok) {
+                let errorBody = '';
+                try {
+                    errorBody = await response.text();
+                } catch (e) { /* ignore */ }
+                throw new Error(`HTTP error! Status: ${response.status} ${response.statusText}. Body: ${errorBody.substring(0, 200)}`);
+            }
+            return response;
+        } catch (error) {
+            lastError = error;
+            console.warn(`Fetch attempt ${attempt}/${maxRetries} failed for ${url}: ${error.message}`);
+            if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * Math.pow(2, attempt - 1)));
+            }
+        }
+    }
+    console.error(`All fetch attempts failed for ${url}. Last error:`, lastError.message);
+    throw lastError;
+}
+
+// Google Analytics Event Sending Function
+async function sendAnalyticsEvent(eventName, eventParams) {
+    if (!ANALYTICS_ENABLED) {
+        return;
+    }
+    // Use a dynamically generated client_id for each event to ensure anonymity
+    const clientId = crypto.randomBytes(16).toString("hex");
+    const analyticsData = {
+        client_id: clientId,
+        events: [{
+            name: eventName,
+            params: {
+                // GA4 standard parameters for better reporting
+                session_id: crypto.randomBytes(16).toString("hex"),
+                engagement_time_msec: '100',
+                ...eventParams
+            },
+        }],
+    };
+    try {
+        const { default: fetchFunction } = await import('node-fetch');
+        // Use a proper timeout and catch any network errors to prevent crashes
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        // Fire-and-forget with proper error handling
+        fetchFunction(`https://www.google-analytics.com/mp/collect?measurement_id=${GA_MEASUREMENT_ID}&api_secret=${GA_API_SECRET}`, {
+            method: 'POST',
+            body: JSON.stringify(analyticsData),
+            signal: controller.signal
+        }).catch(err => {
+            console.warn(`[Analytics] Network error sending event: ${err.message}`);
+        }).finally(() => {
+            clearTimeout(timeout);
+        });
+        console.log(`[Analytics] Sent event: ${eventName} for "${eventParams.content_title || 'N/A'}"`);
+    } catch (error) {
+        console.warn(`[Analytics] Failed to send event: ${error.message}`);
+    }
+}
+
+// Helper function for fetching with a timeout
+function fetchWithTimeout(promise, timeoutMs, providerName) {
+    return new Promise((resolve) => { // Always resolve to prevent Promise.all from rejecting
+        let timer = null;
+        const timeoutPromise = new Promise(r => {
+            timer = setTimeout(() => {
+                console.log(`[${providerName}] Request timed out after ${timeoutMs}ms. Returning empty array.`);
+                r({ streams: [], provider: providerName, error: new Error('Timeout') }); // Resolve with an object indicating timeout
+            }, timeoutMs);
+        });
+        Promise.race([promise, timeoutPromise])
+            .then((result) => {
+                clearTimeout(timer);
+                // Ensure the result is an object with a streams array, even if the original promise resolved with just an array
+                if (Array.isArray(result)) {
+                    resolve({ streams: result, provider: providerName });
+                } else if (result && typeof result.streams !== 'undefined') {
+                    resolve(result); // Already in the expected format (e.g. from timeoutPromise)
+                } else {
+                    // This case might happen if the promise resolves with something unexpected
+                    console.warn(`[${providerName}] Resolved with unexpected format. Returning empty array. Result:`, result);
+                    resolve({ streams: [], provider: providerName });
+                }
+            })
+            .catch(error => {
+                clearTimeout(timer);
+                console.error(`[${providerName}] Error fetching streams: ${error.message}. Returning empty array.`);
+                resolve({ streams: [], provider: providerName, error }); // Resolve with an object indicating error
+            });
+    });
+}
+
+// --- Stream Caching Functions ---
+
+// Ensure stream cache directory exists
 const ensureStreamCacheDir = async () => {
     if (!ENABLE_STREAM_CACHE) return;
-    await fs.mkdir(STREAM_CACHE_DIR, { recursive: true }).catch(() => {});
+    try {
+        await fs.mkdir(STREAM_CACHE_DIR, { recursive: true });
+        console.log(`[Stream Cache] Cache directory ensured at ${STREAM_CACHE_DIR}`);
+    } catch (error) {
+        if (error.code !== 'EEXIST') {
+            console.warn(`[Stream Cache] Warning: Could not create cache directory ${STREAM_CACHE_DIR}: ${error.message}`);
+        }
+    }
 };
 
-ensureStreamCacheDir();
+// Initialize stream cache directory on startup
+ensureStreamCacheDir().catch(err => console.error(`[Stream Cache] Error creating cache directory: ${err.message}`));
 
-const getStreamCacheKey = (provider, type, id, season = null, episode = null) => {
-    let key = `streams_${provider.toLowerCase()}_${type}_${id}`;
-    if (season != null && episode != null) key += `_s${season}e${episode}`;
+// Generate cache key for a provider's streams
+const getStreamCacheKey = (provider, type, id, seasonNum = null, episodeNum = null, region = null, cookie = null) => {
+    // Basic key parts
+    let key = `streams_${provider}_${type}_${id}`;
+    // Add season/episode for TV series
+    if (seasonNum !== null && episodeNum !== null) {
+        key += `_s${seasonNum}e${episodeNum}`;
+    }
+    // For ShowBox with custom cookie/region, add those to the cache key
+    if (provider.toLowerCase() === 'showbox' && (region || cookie)) {
+        key += '_custom';
+        if (region) key += `_${region}`;
+        if (cookie) {
+            // Hash the cookie to avoid storing sensitive info in filenames
+            const cookieHash = crypto.createHash('md5').update(cookie).digest('hex').substring(0, 10);
+            key += `_${cookieHash}`;
+        }
+    }
     return key;
 };
 
-const getStreamFromCache = async (provider, type, id, season, episode) => {
-    if (!ENABLE_STREAM_CACHE) return null;
-    const key = getStreamCacheKey(provider, type, id, season, episode);
-    if (redis) {
+// TMDB Conversion Cache (In-memory fallback)
+const tmdbConversionCache = new Map();
+const TMDB_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+const getCachedConvertImdbToTmdb = async (imdbId, regionPreference, type) => {
+    const cacheKey = `tmdb_conv_${imdbId}_${type}`;
+    // Try Redis first if available
+    if (USE_REDIS_CACHE && redis && redis.status === 'ready') {
         try {
-            const data = await redis.get(key);
-            if (data) {
-                const obj = JSON.parse(data);
-                if (obj.expiry && Date.now() > obj.expiry) {
-                    await redis.del(key);
-                    return null;
-                }
-                return obj.streams;
+            const cached = await redis.get(cacheKey);
+            if (cached) {
+                console.log(`[TMDB Cache] Hit (Redis) for ${imdbId}`);
+                return JSON.parse(cached);
             }
-        } catch {}
+        } catch (err) {
+            console.error(`[TMDB Cache] Redis error:`, err.message);
+        }
+    } else {
+        // Fallback to in-memory cache
+        const cached = tmdbConversionCache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp < TMDB_CACHE_TTL)) {
+            console.log(`[TMDB Cache] Hit (Memory) for ${imdbId}`);
+            return cached.data;
+        }
     }
+    // Perform actual conversion
+    const result = await convertImdbToTmdb(imdbId, regionPreference, type);
+    if (result) {
+        // Save to cache
+        if (USE_REDIS_CACHE && redis && redis.status === 'ready') {
+            try {
+                await redis.set(cacheKey, JSON.stringify(result), 'EX', 86400); // 24 hours
+            } catch (err) {
+                console.error(`[TMDB Cache] Redis set error:`, err.message);
+            }
+        } else {
+            tmdbConversionCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        }
+    }
+    return result;
+};
+
+// Get cached streams for a provider - Hybrid approach (Redis first, then file)
+const getStreamFromCache = async (provider, type, id, seasonNum = null, episodeNum = null, region = null, cookie = null) => {
+    if (!ENABLE_STREAM_CACHE) return null;
+    // Exclude ShowBox and PStream from cache entirely
     try {
-        const file = path.join(STREAM_CACHE_DIR, key + '.json');
-        const data = await fs.readFile(file, 'utf-8');
-        const obj = JSON.parse(data);
-        if (obj.expiry && Date.now() > obj.expiry) {
-            await fs.unlink(file).catch(() => {});
+        if (provider && ['showbox', 'pstream'].includes(String(provider).toLowerCase())) {
             return null;
         }
-        return obj.streams;
-    } catch {
+    } catch (_) { }
+    const cacheKey = getStreamCacheKey(provider, type, id, seasonNum, episodeNum, region, cookie);
+    // Try Redis first if available
+    if (redis) {
+        try {
+            const data = await redis.get(cacheKey);
+            if (data) {
+                const cached = JSON.parse(data);
+                // Check if cache is expired (redundant with Redis TTL, but for safety)
+                if (cached.expiry && Date.now() > cached.expiry) {
+                    console.log(`[Redis Cache] EXPIRED for ${provider}: ${cacheKey}`);
+                    await redis.del(cacheKey);
+                    return null;
+                }
+                // Check for failed status - retry on next request
+                if (cached.status === 'failed') {
+                    console.log(`[Redis Cache] RETRY for previously failed ${provider}: ${cacheKey}`);
+                    return null;
+                }
+                console.log(`[Redis Cache] HIT for ${provider}: ${cacheKey}`);
+                return cached.streams;
+            }
+        } catch (error) {
+            console.warn(`[Redis Cache] READ ERROR for ${provider}: ${cacheKey}: ${error.message}`);
+            console.log('[Redis Cache] Falling back to file cache');
+            // Fall back to file cache on Redis error
+        }
+    }
+    // File cache fallback
+    const fileCacheKey = cacheKey + '.json';
+    const cachePath = path.join(STREAM_CACHE_DIR, fileCacheKey);
+    try {
+        const data = await fs.readFile(cachePath, 'utf-8');
+        const cached = JSON.parse(data);
+        // Check if cache is expired
+        if (cached.expiry && Date.now() > cached.expiry) {
+            console.log(`[File Cache] EXPIRED for ${provider}: ${fileCacheKey}`);
+            await fs.unlink(cachePath).catch(() => { }); // Delete expired cache
+            return null;
+        }
+        // Check for failed status - retry on next request
+        if (cached.status === 'failed') {
+            console.log(`[File Cache] RETRY for previously failed ${provider}: ${fileCacheKey}`);
+            return null;
+        }
+        console.log(`[File Cache] HIT for ${provider}: ${fileCacheKey}`);
+        return cached.streams;
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            console.warn(`[File Cache] READ ERROR for ${provider}: ${fileCacheKey}: ${error.message}`);
+        }
         return null;
     }
 };
 
-const saveStreamToCache = async (provider, type, id, streams, status = 'ok', season = null, episode = null, ttlMs = STREAM_CACHE_TTL_MS) => {
+// Save streams to cache - Hybrid approach (Redis + file)
+const saveStreamToCache = async (provider, type, id, streams, status = 'ok', seasonNum = null, episodeNum = null, region = null, cookie = null, ttlMs = null) => {
     if (!ENABLE_STREAM_CACHE) return;
-    const key = getStreamCacheKey(provider, type, id, season, episode);
-    const data = { streams, status, expiry: Date.now() + ttlMs, timestamp: Date.now() };
-
+    // Exclude ShowBox and PStream from cache entirely
+    try {
+        if (provider && ['showbox', 'pstream'].includes(String(provider).toLowerCase())) {
+            return;
+        }
+    } catch (_) { }
+    const cacheKey = getStreamCacheKey(provider, type, id, seasonNum, episodeNum, region, cookie);
+    const effectiveTtlMs = ttlMs !== null ? ttlMs : STREAM_CACHE_TTL_MS; // Use provided TTL or default
+    const cacheData = {
+        streams: streams,
+        status: status,
+        expiry: Date.now() + effectiveTtlMs, // Use effective TTL
+        timestamp: Date.now()
+    };
+    let redisSuccess = false;
+    // Try Redis first if available
     if (redis) {
         try {
-            await redis.set(key, JSON.stringify(data), 'PX', ttlMs);
-            return;
-        } catch {}
+            // PX sets expiry in milliseconds
+            await redis.set(cacheKey, JSON.stringify(cacheData), 'PX', effectiveTtlMs); // Use effective TTL
+            console.log(`[Redis Cache] SAVED for ${provider}: ${cacheKey} (${streams.length} streams, status: ${status}, TTL: ${effectiveTtlMs / 1000}s)`);
+            redisSuccess = true;
+        } catch (error) {
+            console.warn(`[Redis Cache] WRITE ERROR for ${provider}: ${cacheKey}: ${error.message}`);
+            console.log('[Redis Cache] Falling back to file cache');
+        }
     }
+    // Also save to file cache as backup, or if Redis failed
     try {
-        const file = path.join(STREAM_CACHE_DIR, key + '.json');
-        await fs.writeFile(file, JSON.stringify(data), 'utf-8');
-    } catch {}
+        const fileCacheKey = cacheKey + '.json';
+        const cachePath = path.join(STREAM_CACHE_DIR, fileCacheKey);
+        await fs.writeFile(cachePath, JSON.stringify(cacheData), 'utf-8');
+        // Only log if Redis didn't succeed to avoid redundant logging
+        if (!redisSuccess) {
+            console.log(`[File Cache] SAVED for ${provider}: ${fileCacheKey} (${streams.length} streams, status: ${status}, TTL: ${effectiveTtlMs / 1000}s)`);
+        }
+    } catch (error) {
+        console.warn(`[File Cache] WRITE ERROR for ${provider}: ${cacheKey}.json: ${error.message}`);
+    }
 };
 
-// =============================================================================
-// Stream handler
-// =============================================================================
-
+// Define stream handler for movies
 builder.defineStreamHandler(async (args) => {
-    const { type, id, config = {} } = args;
-
-    if (!['movie', 'series'].includes(type)) return { streams: [] };
-
-    // Parse ID
-    let tmdbId, seasonNum = null, episodeNum = null;
-    const parts = id.split(':');
-
-    if (parts[0] === 'tmdb') {
-        tmdbId = parts[1];
-        if (parts.length >= 4) {
-            seasonNum = parseInt(parts[2], 10);
-            episodeNum = parseInt(parts[3], 10);
+    const requestStartTime = Date.now(); // Start total request timer
+    const providerTimings = {}; // Object to store timings
+    const formatDuration = (ms) => {
+        if (ms < 1000) {
+            return `${ms}ms`;
         }
-    } else if (parts[0].startsWith('tt')) {
-        // You should add IMDb → TMDB conversion here if needed
-        // For simplicity — assuming most clients send tmdb:xxx now
-        return { streams: [] };
+        const totalSeconds = ms / 1000;
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        let str = "";
+        if (minutes > 0) {
+            str += `${minutes}m `;
+        }
+        if (seconds > 0 || minutes === 0) {
+            let secStr = seconds.toFixed(2);
+            if (secStr.endsWith('.00')) {
+                secStr = secStr.substring(0, secStr.length - 3);
+            }
+            str += `${secStr}s`;
+        }
+        return str.trim();
+    };
+    const { type, id, config: sdkConfig } = args;
+    // Read config from global set by server.js middleware
+    const requestSpecificConfig = global.currentRequestConfig || {};
+    // Mask sensitive fields for logs
+    const maskedForLog = (() => {
+        try {
+            const clone = JSON.parse(JSON.stringify(requestSpecificConfig));
+            if (clone.cookie) clone.cookie = '[PRESENT: ****]';
+            if (clone.cookies && Array.isArray(clone.cookies)) clone.cookies = `[${clone.cookies.length} cookies]`;
+            if (clone.scraper_api_key) clone.scraper_api_key = '[PRESENT: ****]';
+            if (clone.chosenFebboxBaseCookieForRequest) clone.chosenFebboxBaseCookieForRequest = '[PRESENT: ****]';
+            return clone;
+        } catch (_) {
+            return { masked: true };
+        }
+    })();
+    console.log(`[addon.js] Read from global.currentRequestConfig: ${JSON.stringify(maskedForLog)}`);
+    // NEW: Get minimum quality preferences
+    const minQualitiesPreferences = requestSpecificConfig.minQualities || {};
+    if (Object.keys(minQualitiesPreferences).length > 0) {
+        console.log(`[addon.js] Minimum quality preferences: ${JSON.stringify(minQualitiesPreferences)}`);
     } else {
+        console.log(`[addon.js] No minimum quality preferences set by user.`);
+    }
+    // NEW: Get codec exclude preferences
+    const excludeCodecsPreferences = requestSpecificConfig.excludeCodecs || {};
+    if (Object.keys(excludeCodecsPreferences).length > 0) {
+        console.log(`[addon.js] Codec exclude preferences: ${JSON.stringify(excludeCodecsPreferences)}`);
+    } else {
+        console.log(`[addon.js] No codec exclude preferences set by user.`);
+    }
+    console.log("--- FULL ARGS OBJECT (from SDK) ---");
+    console.log(JSON.stringify(args, null, 2));
+    console.log("--- SDK ARGS.CONFIG (still logging for comparison) ---");
+    console.log(JSON.stringify(sdkConfig, null, 2)); // Log the original sdkConfig
+    console.log("---------------------------------");
+    // Helper to get flag emoji from URL hostname
+    const getFlagEmojiForUrl = (url) => {
+        try {
+            const hostname = new URL(url).hostname;
+            // Match common patterns like xx, xxN, xxNN at the start of a part of the hostname
+            const match = hostname.match(/^([a-zA-Z]{2,3})[0-9]{0,2}(?:[.-]|$)/i);
+            if (match && match[1]) {
+                const countryCode = match[1].toLowerCase();
+                const flagMap = {
+                    'us': '🇺🇸', 'usa': '🇺🇸',
+                    'gb': '🇬🇧', 'uk': '🇬🇧',
+                    'ca': '🇨🇦',
+                    'de': '🇩🇪',
+                    'fr': '🇫🇷',
+                    'nl': '🇳🇱',
+                    'hk': '🇭🇰',
+                    'sg': '🇸🇬',
+                    'jp': '🇯🇵',
+                    'au': '🇦🇺',
+                    'in': '🇮🇳',
+                    // Add more as needed
+                };
+                return flagMap[countryCode] || ''; // Return empty string if no match
+            }
+        } catch (e) {
+            // Invalid URL or other error
+        }
+        return ''; // Default to empty string
+    };
+    // Use values from requestSpecificConfig (derived from global)
+    let userRegionPreference = requestSpecificConfig.region || null;
+    let userCookie = requestSpecificConfig.cookie || null; // Already decoded by server.js
+    let userScraperApiKey = requestSpecificConfig.scraper_api_key || null; // NEW: Get ScraperAPI Key
+    // Combine single cookie + cookies array into unified list for ShowBox
+    // This ensures both single cookie and multi-cookie setups work
+    const cookiesFromArray = Array.isArray(requestSpecificConfig.cookies) ? requestSpecificConfig.cookies : [];
+    const allCookies = [];
+    // Add single cookie first (priority)
+    if (userCookie && userCookie.trim()) {
+        allCookies.push(userCookie.trim());
+    }
+    // Add cookies from array (deduplicate)
+    for (const c of cookiesFromArray) {
+        if (c && c.trim() && !allCookies.includes(c.trim())) {
+            allCookies.push(c.trim());
+        }
+    }
+    if (allCookies.length > 0) {
+        console.log(`[addon.js] Combined ${allCookies.length} unique cookie(s) for ShowBox`);
+    }
+    // Log the request information in a more detailed way
+    console.log(`Stream request for Stremio type: '${type}', id: '${id}'`);
+    let selectedProvidersArray = null;
+    if (requestSpecificConfig.providers) {
+        selectedProvidersArray = requestSpecificConfig.providers.split(',').map(p => p.trim().toLowerCase());
+    }
+    // Detect presence of cookies (single or array)
+    const hasCookiesArray = cookiesFromArray.length > 0;
+    const hasAnyCookies = allCookies.length > 0;
+    console.log(`Effective request details: ${JSON.stringify({
+        regionPreference: userRegionPreference || 'none',
+        hasCookie: hasAnyCookies,
+        cookieCount: allCookies.length,
+        selectedProviders: selectedProvidersArray ? selectedProvidersArray.join(', ') : 'all'
+    })}`);
+    if (userRegionPreference) {
+        console.log(`[addon.js] Using region from global config: ${userRegionPreference}`);
+    } else {
+        console.log(`[addon.js] No region preference found in global config.`);
+    }
+    if (hasAnyCookies) {
+        const cookieSource = userCookie ? 'single' : 'array';
+        console.log(`[addon.js] Using personal cookie(s): ${allCookies.length} cookie(s) available (source: ${cookieSource})`);
+    } else {
+        console.log(`[addon.js] No cookie found in global config.`);
+    }
+    if (selectedProvidersArray) {
+        console.log(`[addon.js] Using providers from global config: ${selectedProvidersArray.join(', ')}`);
+    } else {
+        console.log('[addon.js] No specific providers selected by user in global config, will attempt all.');
+    }
+    if (type !== 'movie' && type !== 'series' && type !== 'tv') {
         return { streams: [] };
     }
-
-    if (!tmdbId) return { streams: [] };
-
-    const tmdbType = type === 'movie' ? 'movie' : 'series';
-
-    // Provider selection (only allowed ones)
-    const allowedProviders = new Set([
-        'castle', 'hdhub4u', 'hianime', 'moviebox', 'moviesdrive',
-        'netmirror', 'streamflix', 'vidlink', 'xdmovies'
-    ]);
-
-    const selected = (config.providers || '')
-        .split(',')
-        .map(p => p.trim().toLowerCase())
-        .filter(p => allowedProviders.has(p));
-
-    const shouldFetch = name => selected.length === 0 || selected.includes(name.toLowerCase());
-
-    const fetchers = {};
-
-    if (ENABLE_CASTLE_PROVIDER)     fetchers.castle     = () => getCastleStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_HDHUB4U_PROVIDER)    fetchers.hdhub4u    = () => getHDHub4uStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_HIANIME_PROVIDER)    fetchers.hianime    = () => getHiAnimeStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_MOVIEBOX_PROVIDER)   fetchers.moviebox   = () => getMovieBoxStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_MOVIESDRIVE_PROVIDER)fetchers.moviesdrive= () => getMoviesDriveStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_NETMIRROR_PROVIDER)  fetchers.netmirror  = () => getNetMirrorStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_STREAMFLIX_PROVIDER) fetchers.streamflix = () => getStreamFlixStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_VIDLINK_PROVIDER)    fetchers.vidlink    = () => getVidLinkStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-    if (ENABLE_XDMOVIES_PROVIDER)   fetchers.xdmovies   = () => getXDMoviesStreams(tmdbId, tmdbType, seasonNum, episodeNum);
-
-    const results = await Promise.allSettled(
-        Object.entries(fetchers).map(async ([name, fn]) => {
-            if (!shouldFetch(name)) return { name, streams: [] };
-
-            const cached = await getStreamFromCache(name, tmdbType, tmdbId, seasonNum, episodeNum);
-            if (cached) return { name, streams: cached };
-
-            try {
-                const streams = await fn();
-                await saveStreamToCache(name, tmdbType, tmdbId, streams, 'ok', seasonNum, episodeNum);
-                return { name, streams: streams || [] };
-            } catch (err) {
-                console.error(`[${name}] error:`, err.message);
-                await saveStreamToCache(name, tmdbType, tmdbId, [], 'failed', seasonNum, episodeNum);
-                return { name, streams: [] };
-            }
-        })
-    );
-
-    let allStreams = [];
-
-    const providerPriority = [
-        'castle', 'moviebox', 'hdhub4u', 'xdmovies', 'streamflix',
-        'vidlink', 'moviesdrive', 'netmirror', 'hianime'
-    ];
-
-    for (const prio of providerPriority) {
-        const res = results.find(r => r.status === 'fulfilled' && r.value?.name === prio);
-        if (res?.value?.streams?.length > 0) {
-            allStreams.push(
-                ...res.value.streams.map(s => ({ ...s, provider: prio }))
-            );
+    let tmdbId;
+    let tmdbTypeFromId;
+    let seasonNum = null;
+    let episodeNum = null;
+    let initialTitleFromConversion = null;
+    let isAnimation = false; // <--- New flag to track if content is animation
+    const idParts = id.split(':');
+    if (idParts[0] === 'tmdb') {
+        tmdbId = idParts[1];
+        tmdbTypeFromId = type === 'movie' ? 'movie' : 'tv';
+        console.log(` Received TMDB ID directly: ${tmdbId} for type ${tmdbTypeFromId}`);
+        // Check for season and episode
+        if (idParts.length >= 4 && (type === 'series' || type === 'tv')) {
+            seasonNum = parseInt(idParts[2], 10);
+            episodeNum = parseInt(idParts[3], 10);
+            console.log(` Parsed season ${seasonNum}, episode ${episodeNum} from Stremio ID`);
         }
+    } else if (id.startsWith('tt')) {
+        console.log(` Received IMDb ID: ${id}. Attempting to convert to TMDB ID.`);
+        const imdbParts = id.split(':');
+        let baseImdbId = id; // Default to full ID for movies
+        if (imdbParts.length >= 3 && (type === 'series' || type === 'tv')) {
+            seasonNum = parseInt(imdbParts[1], 10);
+            episodeNum = parseInt(imdbParts[2], 10);
+            baseImdbId = imdbParts[0]; // Use only the IMDb ID part for conversion
+            console.log(` Parsed season ${seasonNum}, episode ${episodeNum} from IMDb ID parts`);
+        }
+        // Pass userRegionPreference and expected type to convertImdbToTmdb (with caching)
+        const conversionResult = await getCachedConvertImdbToTmdb(baseImdbId, userRegionPreference, type);
+        if (conversionResult && conversionResult.tmdbId && conversionResult.tmdbType) {
+            tmdbId = conversionResult.tmdbId;
+            tmdbTypeFromId = conversionResult.tmdbType;
+            initialTitleFromConversion = conversionResult.title; // Capture title from conversion
+            console.log(` Successfully converted IMDb ID ${baseImdbId} to TMDB ${tmdbTypeFromId} ID ${tmdbId} (${initialTitleFromConversion || 'No title returned'})`);
+        } else {
+            console.log(` Failed to convert IMDb ID ${baseImdbId} to TMDB ID.`);
+            return { streams: [] };
+        }
+    } else {
+        console.log(` Unrecognized ID format: ${id}`);
+        return { streams: [] };
     }
-
-    // Format for Stremio
-    const streams = allStreams.map(s => {
-        let name = `${s.provider} • ${s.quality || '?'}`;
-        let title = s.title || `${s.provider} - ${s.quality || '?'}`;
-
-        if (s.size && s.size !== 'Unknown') {
-            title += `\n${s.size}`;
-        }
-
-        const obj = {
-            name,
-            title,
-            url: s.url,
-            type: s.type || 'url',
-            availability: 2,
-            behaviorHints: {
-                notWebReady: true
+    if (!tmdbId || !tmdbTypeFromId) {
+        console.log(' Could not determine TMDB ID or type after processing Stremio ID.');
+        return { streams: [] };
+    }
+    let movieOrSeriesTitle = initialTitleFromConversion;
+    let movieOrSeriesYear = null;
+    let originalTitle = null;
+    let seasonTitle = null;
+    if (tmdbId && TMDB_API_KEY) {
+        try {
+            let detailsUrl;
+            if (tmdbTypeFromId === 'movie') {
+                detailsUrl = `${TMDB_API_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+            } else { // 'tv'
+                detailsUrl = `${TMDB_API_URL}/tv/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
             }
-        };
-
-        if (s.headers) {
-            obj.behaviorHints.headers = s.headers;
-            obj.behaviorHints.proxyHeaders = { request: s.headers };
+            console.log(`Fetching details from TMDB: ${detailsUrl}`);
+            const tmdbDetailsResponse = await fetchWithRetry(detailsUrl, {});
+            if (!tmdbDetailsResponse.ok) throw new Error(`TMDB API error: ${tmdbDetailsResponse.status}`);
+            const tmdbDetails = await tmdbDetailsResponse.json();
+            if (tmdbTypeFromId === 'movie') {
+                if (!movieOrSeriesTitle) movieOrSeriesTitle = tmdbDetails.title;
+                movieOrSeriesYear = tmdbDetails.release_date ? tmdbDetails.release_date.substring(0, 4) : null;
+                originalTitle = tmdbDetails.original_title;
+            } else { // 'tv'
+                if (!movieOrSeriesTitle) movieOrSeriesTitle = tmdbDetails.name;
+                movieOrSeriesYear = tmdbDetails.first_air_date ? tmdbDetails.first_air_date.substring(0, 4) : null;
+                originalTitle = tmdbDetails.original_name;
+            }
+            console.log(` Fetched/Confirmed TMDB details: Title='${movieOrSeriesTitle}', Year='${movieOrSeriesYear}'`);
+            // NEW: Fetch season-specific title for TV shows
+            if (tmdbTypeFromId === 'tv' && seasonNum) {
+                const seasonDetailsUrl = `${TMDB_API_URL}/tv/${tmdbId}/season/${seasonNum}?api_key=${TMDB_API_KEY}&language=en-US`;
+                console.log(`Fetching season details from TMDB: ${seasonDetailsUrl}`);
+                try {
+                    const seasonDetailsResponse = await fetchWithRetry(seasonDetailsUrl, {});
+                    if (seasonDetailsResponse.ok) {
+                        const seasonDetails = await seasonDetailsResponse.json();
+                        seasonTitle = seasonDetails.name;
+                        console.log(` Fetched season title: "${seasonTitle}"`);
+                    }
+                } catch (e) {
+                    console.warn(`Could not fetch season-specific title: ${e.message}`);
+                }
+            }
+            // Check for Animation genre
+            if (tmdbDetails.genres && Array.isArray(tmdbDetails.genres)) {
+                if (tmdbDetails.genres.some(genre => genre.name.toLowerCase() === 'animation')) {
+                    isAnimation = true;
+                    console.log(' Content identified as Animation based on TMDB genres.');
+                }
+            }
+        } catch (e) {
+            console.error(` Error fetching details from TMDB: ${e.message}`);
         }
-
-        return obj;
+    } else if (tmdbId && !TMDB_API_KEY) {
+        console.warn("TMDB_API_KEY is not configured. Cannot fetch full title/year/genres.");
+    }
+    // --- Send Analytics Event ---
+    if (movieOrSeriesTitle) {
+        sendAnalyticsEvent('stream_request', {
+            content_type: tmdbTypeFromId,
+            content_id: tmdbId,
+            content_title: movieOrSeriesTitle,
+            content_year: movieOrSeriesYear || 'N/A',
+            selected_providers: selectedProvidersArray ? selectedProvidersArray.join(',') : 'all',
+            // Custom dimension for tracking if it's an animation
+            is_animation: isAnimation ? 'true' : 'false',
+        });
+    }
+    let combinedRawStreams = [];
+    // --- Provider Selection Logic ---
+    const shouldFetch = (providerId) => {
+        if (!selectedProvidersArray) return true; // If no selection, fetch all
+        return selectedProvidersArray.includes(providerId.toLowerCase());
+    };
+    // Helper for timing provider fetches
+    const timeProvider = async (providerName, fetchPromise) => {
+        const startTime = Date.now();
+        const result = await fetchPromise;
+        const endTime = Date.now();
+        providerTimings[providerName] = formatDuration(endTime - startTime);
+        return result;
+    };
+    const preFetchedDetails = {
+        title: movieOrSeriesTitle,
+        year: movieOrSeriesYear,
+        originalTitle: originalTitle
+    };
+    // --- NEW: Asynchronous provider fetching with caching ---
+    console.log('[Stream Cache] Checking cache for all enabled providers...');
+    const providerFetchFunctions = {
+        // ShowBox provider with cache integration (keeping as base)
+        showbox: async () => {
+            if (!ENABLE_SHOWBOX_PROVIDER) {
+                console.log('[ShowBox] Skipping fetch: Disabled by environment variable.');
+                return [];
+            }
+            if (!shouldFetch('showbox')) {
+                console.log('[ShowBox] Skipping fetch: Not selected by user.');
+                return [];
+            }
+            // Try to get cached streams first
+            const cachedStreams = await getStreamFromCache('showbox', tmdbTypeFromId, tmdbId, seasonNum, episodeNum, userRegionPreference, userCookie);
+            if (cachedStreams) {
+                console.log(`[ShowBox] Using ${cachedStreams.length} streams from cache.`);
+                return cachedStreams.map(stream => {
+                    // Preserve original provider information for cached streams too
+                    if (stream.provider === 'PStream') {
+                        return stream; // Keep PStream provider as-is
+                    } else {
+                        return { ...stream, provider: 'ShowBox' }; // Set ShowBox for other streams
+                    }
+                });
+            }
+            // No cache or expired, fetch fresh with retry mechanism
+            console.log(`[ShowBox] Fetching new streams...`);
+            let lastError = null;
+            const MAX_SHOWBOX_RETRIES = 3;
+            // Retry logic for ShowBox
+            for (let attempt = 1; attempt <= MAX_SHOWBOX_RETRIES; attempt++) {
+                try {
+                    console.log(`[ShowBox] Attempt ${attempt}/${MAX_SHOWBOX_RETRIES}`);
+                    // Pass allCookies array to ShowBox - it will select the best cookie with fallback
+                    const streams = await getStreamsFromTmdbId(tmdbTypeFromId, tmdbId, seasonNum, episodeNum, userRegionPreference, allCookies, userScraperApiKey);
+                    if (streams && streams.length > 0) {
+                        console.log(`[ShowBox] Successfully fetched ${streams.length} streams on attempt ${attempt}.`);
+                        // Save to cache with success status
+                        await saveStreamToCache('showbox', tmdbTypeFromId, tmdbId, streams, 'ok', seasonNum, episodeNum, userRegionPreference, userCookie);
+                        // Preserve original provider information - don't override PStream streams
+                        return streams.map(stream => {
+                            // Only set provider to 'ShowBox' if it's not already set to 'PStream'
+                            if (stream.provider === 'PStream') {
+                                return stream; // Keep PStream provider as-is
+                            } else {
+                                return { ...stream, provider: 'ShowBox' }; // Set ShowBox for other streams
+                            }
+                        });
+                    } else {
+                        console.log(`[ShowBox] No streams returned for TMDB ${tmdbTypeFromId}/${tmdbId} on attempt ${attempt}`);
+                        // Only save empty result if we're on the last retry
+                        if (attempt === MAX_SHOWBOX_RETRIES) {
+                            await saveStreamToCache('showbox', tmdbTypeFromId, tmdbId, [], 'failed', seasonNum, episodeNum, userRegionPreference, userCookie);
+                        }
+                        // If not last attempt, wait and retry
+                        if (attempt < MAX_SHOWBOX_RETRIES) {
+                            const delayMs = 1000 * Math.pow(2, attempt - 1); // Exponential backoff: 1s, 2s, 4s
+                            console.log(`[ShowBox] Waiting ${delayMs}ms before retry...`);
+                            await new Promise(resolve => setTimeout(resolve, delayMs));
+                        }
+                    }
+                } catch (err) {
+                    lastError = err;
+                    console.error(`[ShowBox] Error fetching streams (attempt ${attempt}/${MAX_SHOWBOX_RETRIES}):`, err.message);
+                    // If not last attempt, wait and retry
+                    if (attempt < MAX_SHOWBOX_RETRIES) {
+                        const delayMs = 1000 * Math.pow(2, attempt - 1); // Exponential backoff: 1s, 2s, 4s
+                        console.log(`[ShowBox] Waiting ${delayMs}ms before retry...`);
+                        await new Promise(resolve => setTimeout(resolve, delayMs));
+                    } else {
+                        // Only save error status to cache on the last retry
+                        await saveStreamToCache('showbox', tmdbTypeFromId, tmdbId, [], 'failed', seasonNum, episodeNum, userRegionPreference, userCookie);
+                    }
+                }
+            }
+            // If we get here, all retries failed
+            console.error(`[ShowBox] All ${MAX_SHOWBOX_RETRIES} attempts failed. Last error: ${lastError ? lastError.message : 'Unknown error'}`);
+            return [];
+        },
+        // Castle provider
+        castle: async () => {
+            if (!ENABLE_CASTLE_PROVIDER) return [];
+            if (!shouldFetch('castle')) return [];
+            try {
+                const cached = await getStreamFromCache('castle', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'Castle' }));
+                console.log(`[Castle] Fetching new streams...`);
+                const streams = await getCastleStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum);
+                await saveStreamToCache('castle', tmdbTypeFromId, tmdbId, streams || [], streams && streams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return (streams || []).map(s => ({ ...s, provider: 'Castle' }));
+            } catch (err) {
+                console.error(`[Castle] Error:`, err.message);
+                return [];
+            }
+        },
+        // HDHub4u provider
+        hdhub4u: async () => {
+            if (!ENABLE_HDHUB4U_PROVIDER) return [];
+            if (!shouldFetch('hdhub4u')) return [];
+            try {
+                const cached = await getStreamFromCache('hdhub4u', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'HDHub4u' }));
+                console.log(`[HDHub4u] Fetching new streams...`);
+                const streams = await getHDHub4uStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum);
+                await saveStreamToCache('hdhub4u', tmdbTypeFromId, tmdbId, streams || [], streams && streams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return (streams || []).map(s => ({ ...s, provider: 'HDHub4u' }));
+            } catch (err) {
+                console.error(`[HDHub4u] Error:`, err.message);
+                return [];
+            }
+        },
+        // HiAnime provider
+        hianime: async () => {
+            if (!ENABLE_HIANIME_PROVIDER) return [];
+            if (!shouldFetch('hianime')) return [];
+            // Anime provider - only works for animation content
+            if (!isAnimation) {
+                console.log('[HiAnime] Skipping fetch: Content is not animation.');
+                return [];
+            }
+            try {
+                const cached = await getStreamFromCache('hianime', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'HiAnime' }));
+                console.log(`[HiAnime] Fetching new streams...`);
+                // Uncomment when provider file exists
+                // const streams = await getHiAnimeStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum);
+                // Placeholder until provider is implemented
+                const streams = [];
+                console.log(`[HiAnime] Provider not fully implemented yet. Returning empty array.`);
+                await saveStreamToCache('hianime', tmdbTypeFromId, tmdbId, streams || [], streams && streams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return (streams || []).map(s => ({ ...s, provider: 'HiAnime' }));
+            } catch (err) {
+                console.error(`[HiAnime] Error:`, err.message);
+                return [];
+            }
+        },
+        // MovieBox provider
+        moviebox: async () => {
+            if (!ENABLE_MOVIEBOX_PROVIDER) return [];
+            if (!shouldFetch('moviebox')) return [];
+            try {
+                const cached = await getStreamFromCache('moviebox', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'MovieBox' }));
+                console.log(`[MovieBox] Fetching new streams...`);
+                // MovieBox getStreams signature: (tmdbId, mediaType, seasonNum, episodeNum, preFetchedDetails)
+                const streams = await getMovieBoxStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum, preFetchedDetails);
+                await saveStreamToCache('moviebox', tmdbTypeFromId, tmdbId, streams || [], streams && streams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return (streams || []).map(s => ({ ...s, provider: 'MovieBox' }));
+            } catch (err) {
+                console.error(`[MovieBox] Error:`, err.message);
+                return [];
+            }
+        },
+        // MoviesDrive provider
+        moviesdrive: async () => {
+            if (!ENABLE_MOVIESDRIVE_PROVIDER) return [];
+            if (!shouldFetch('moviesdrive')) return [];
+            try {
+                const cached = await getStreamFromCache('moviesdrive', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'MoviesDrive' }));
+                console.log(`[MoviesDrive] Fetching new streams...`);
+                const streams = await getMoviesDriveStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum);
+                await saveStreamToCache('moviesdrive', tmdbTypeFromId, tmdbId, streams || [], streams && streams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return (streams || []).map(s => ({ ...s, provider: 'MoviesDrive' }));
+            } catch (err) {
+                console.error(`[MoviesDrive] Error:`, err.message);
+                return [];
+            }
+        },
+        // NetMirror provider
+        netmirror: async () => {
+            if (!ENABLE_NETMIRROR_PROVIDER) return [];
+            if (!shouldFetch('netmirror')) return [];
+            try {
+                const cached = await getStreamFromCache('netmirror', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'NetMirror' }));
+                console.log(`[NetMirror] Fetching new streams for TMDB: ${tmdbId}, Type: ${tmdbTypeFromId}`);
+                console.log(`[NetMirror] PreFetched Details Title: ${preFetchedDetails ? preFetchedDetails.title : 'MISSING'}`);
+                // Lazy require to avoid potential load order issues
+                let fetchFunction = getNetMirrorStreams;
+                if (typeof fetchFunction !== 'function') {
+                    console.log("[NetMirror] getNetMirrorStreams not a function, retrying require...");
+                    const nm = require('./providers/netmirror.js');
+                    fetchFunction = nm.getStreams || nm;
+                }
+                const streams = await fetchFunction(tmdbId, tmdbTypeFromId, seasonNum, episodeNum, preFetchedDetails);
+                console.log(`[NetMirror] Raw streams count: ${streams ? streams.length : 'null'}`);
+                // Use local proxy for NetMirror but retain compatibility headers
+                const normalizedStreams = (streams || []).map(stream => {
+                    const encodedUrl = encodeURIComponent(stream.url);
+                    const cookieParam = stream.headers && stream.headers.Cookie ? `&cookie=${encodeURIComponent(stream.headers.Cookie)}` : '';
+                    const internalBaseUrl = requestSpecificConfig.baseUrl || '';
+                    const proxyUrl = `${internalBaseUrl}/netmirror/m3u8?url=${encodedUrl}${cookieParam}`;
+                    return {
+                        ...stream,
+                        url: proxyUrl,
+                        provider: 'NetMirror',
+                        type: 'hls',
+                        headers: stream.headers || {}, // COMPATIBILITY: Keep headers for reference/fallback
+                        behaviorHints: {
+                            notWebReady: true,
+                            proxyHeaders: {
+                                request: stream.headers || {}
+                            }
+                        }
+                    };
+                });
+                await saveStreamToCache('netmirror', tmdbTypeFromId, tmdbId, normalizedStreams || [], normalizedStreams && normalizedStreams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return normalizedStreams;
+            } catch (err) {
+                console.error(`[NetMirror] Error:`, err.message);
+                return [];
+            }
+        },
+        // StreamFlix provider
+        streamflix: async () => {
+            if (!ENABLE_STREAMFLIX_PROVIDER) return [];
+            if (!shouldFetch('streamflix')) return [];
+            try {
+                const cached = await getStreamFromCache('streamflix', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'StreamFlix' }));
+                console.log(`[StreamFlix] Fetching new streams...`);
+                const streams = await getStreamFlixStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum);
+                await saveStreamToCache('streamflix', tmdbTypeFromId, tmdbId, streams || [], streams && streams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return (streams || []).map(s => ({ ...s, provider: 'StreamFlix' }));
+            } catch (err) {
+                console.error(`[StreamFlix] Error:`, err.message);
+                return [];
+            }
+        },
+        // VidLink provider
+        vidlink: async () => {
+            if (!ENABLE_VIDLINK_PROVIDER) return [];
+            if (!shouldFetch('vidlink')) return [];
+            try {
+                const cached = await getStreamFromCache('vidlink', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'VidLink' }));
+                console.log(`[VidLink] Fetching new streams...`);
+                const streams = await getVidLinkStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum);
+                const normalizedStreams = (streams || []).map(stream => ({
+                    ...stream,
+                    provider: 'VidLink',
+                    type: stream.type || (stream.url && stream.url.includes('.m3u8') ? 'hls' : 'direct')
+                }));
+                await saveStreamToCache('vidlink', tmdbTypeFromId, tmdbId, normalizedStreams, normalizedStreams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return normalizedStreams;
+            } catch (err) {
+                console.error(`[VidLink] Error:`, err.message);
+                return [];
+            }
+        },
+        // XDMovies provider
+        xdmovies: async () => {
+            if (!ENABLE_XDMOVIES_PROVIDER) return [];
+            if (!shouldFetch('xdmovies')) return [];
+            try {
+                const cached = await getStreamFromCache('xdmovies', tmdbTypeFromId, tmdbId, seasonNum, episodeNum);
+                if (cached) return cached.map(s => ({ ...s, provider: 'XDMovies' }));
+                console.log(`[XDMovies] Fetching new streams...`);
+                // Uncomment when provider file exists
+                // const streams = await getXDMoviesStreams(tmdbId, tmdbTypeFromId, seasonNum, episodeNum);
+                // Placeholder until provider is implemented
+                const streams = [];
+                console.log(`[XDMovies] Provider not fully implemented yet. Returning empty array.`);
+                await saveStreamToCache('xdmovies', tmdbTypeFromId, tmdbId, streams || [], streams && streams.length > 0 ? 'ok' : 'failed', seasonNum, episodeNum);
+                return (streams || []).map(s => ({ ...s, provider: 'XDMovies' }));
+            } catch (err) {
+                console.error(`[XDMovies] Error:`, err.message);
+                return [];
+            }
+        }
+    };
+    // Execute all provider fetches in parallel with a global timeout for each
+    console.log('Running parallel provider fetches with caching and timeouts...');
+    const PROVIDER_FETCH_TIMEOUT = 60000; // 60 seconds per provider (increased for Tor latency)
+    const providerPromises = Object.entries(providerFetchFunctions).map(async ([name, fetchFn]) => {
+        try {
+            // Create a timeout promise
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`Fetch timed out after ${PROVIDER_FETCH_TIMEOUT}ms`)), PROVIDER_FETCH_TIMEOUT)
+            );
+            // Race the fetch against the timeout
+            const results = await Promise.race([fetchFn(), timeoutPromise]);
+            return results;
+        } catch (err) {
+            console.error(`[Parallel Fetch] Provider ${name} failed or timed out:`, err.message);
+            return [];
+        }
     });
-
-    return { streams };
+    const allStreamsResults = await Promise.allSettled(providerPromises);
+    // Process results into streamsByProvider object (extract fulfilled values)
+    const providerResults = allStreamsResults.map(result =>
+        result.status === 'fulfilled' ? result.value : []
+    );
+    // Combine streams in the preferred provider order
+    combinedRawStreams = [];
+    // Map results back to streamsByProvider
+    const streamsByProvider = {};
+    const providerNames = Object.keys(providerFetchFunctions);
+    providerResults.forEach((streams, index) => {
+        const name = providerNames[index];
+        // Apply filters based on provider name (mapping to keys in minQualitiesPreferences etc)
+        const prefKey = name.toLowerCase();
+        streamsByProvider[name] = applyAllStreamFilters(
+            streams,
+            name,
+            minQualitiesPreferences[prefKey] || minQualitiesPreferences.all,
+            excludeCodecsPreferences[prefKey] || {}
+        ).map(stream => {
+            // Proxy wrapping moved to final object creation to handle headers correctly
+            return stream;
+        });
+    });
+    // Sort streams for each provider by quality, then size
+    console.log('Sorting streams for each provider by quality, then size...');
+    for (const provider in streamsByProvider) {
+        streamsByProvider[provider].sort((a, b) => {
+            const qualityA = parseQuality(a.quality);
+            const qualityB = parseQuality(b.quality);
+            if (qualityB !== qualityA) {
+                return qualityB - qualityA; // Higher quality first
+            }
+            const sizeA = parseSize(a.size);
+            const sizeB = parseSize(b.size);
+            return sizeB - sizeA; // Larger file first if same quality
+        });
+    }
+    const providerOrder = ['ShowBox', 'MovieBox', 'Castle', 'StreamFlix', 'VidLink', 'HDHub4u', 'MoviesDrive', 'NetMirror', 'HiAnime', 'XDMovies'];
+    providerOrder.forEach(providerKey => {
+        // Find the matching key in streamsByProvider (case-insensitive-ish)
+        const actualKey = Object.keys(streamsByProvider).find(k => k.toLowerCase() === providerKey.toLowerCase());
+        if (actualKey && streamsByProvider[actualKey] && streamsByProvider[actualKey].length > 0) {
+            combinedRawStreams.push(...streamsByProvider[actualKey]);
+        }
+    });
+    console.log(`Total raw streams after provider-ordered fetch: ${combinedRawStreams.length}`);
+    if (combinedRawStreams.length === 0) {
+        console.log(` No streams found from any provider for TMDB ${tmdbTypeFromId}/${tmdbId}`);
+        return { streams: [] };
+    }
+    console.log(`Total streams after provider-level sorting: ${combinedRawStreams.length}`);
+    // Format and send the response
+    const stremioStreamObjects = combinedRawStreams.map((stream) => {
+        // --- DEBUG: Log streams from specific providers ---
+        if (['moviebox', 'vidlink'].includes(stream.provider.toLowerCase())) {
+            console.log(`[Proxy Check] Processing stream from ${stream.provider}: ${stream.url}`);
+            if (stream.headers) {
+                console.log(`[Proxy Check] Headers present: ${JSON.stringify(stream.headers)}`);
+            }
+        }
+        // --- Special handling for MoviesDrive to use its pre-formatted titles ---
+        if (stream.provider === 'MoviesDrive') {
+            return {
+                name: stream.name, // Use the name from the provider, e.g., "MoviesDrive (Pixeldrain) - 2160p"
+                title: stream.title, // Use the title from the provider, e.g., "Title\nSize\nFilename"
+                url: stream.url,
+                type: 'url',
+                availability: 2,
+                behaviorHints: {
+                    notWebReady: true
+                }
+            };
+        }
+        const qualityLabel = stream.quality || 'UNK'; // UNK for unknown
+        let displayTitle;
+        if (stream.provider === 'ShowBox' && stream.title) {
+            displayTitle = stream.title; // Use the raw filename from ShowBox
+        } else if (tmdbTypeFromId === 'tv' && seasonNum !== null && episodeNum !== null && movieOrSeriesTitle) {
+            displayTitle = `${movieOrSeriesTitle} S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}`;
+        } else if (movieOrSeriesTitle) {
+            if (tmdbTypeFromId === 'movie' && movieOrSeriesYear) {
+                displayTitle = `${movieOrSeriesTitle} (${movieOrSeriesYear})`;
+            } else {
+                displayTitle = movieOrSeriesTitle;
+            }
+        } else {
+            displayTitle = stream.title || "Unknown Title"; // Fallback to the title from the raw stream data
+        }
+        const flagEmoji = getFlagEmojiForUrl(stream.url);
+        let providerDisplayName = stream.provider; // Default to the existing provider name
+        if (stream.provider === 'ShowBox') {
+            providerDisplayName = 'ShowBox';
+            if (hasAnyCookies) {
+                providerDisplayName += ' ⚡';
+            } else {
+                providerDisplayName += ' (SLOW)';
+            }
+        } else if (stream.provider === 'MovieBox') {
+            providerDisplayName = 'MovieBox';
+        } else if (stream.provider === 'Castle') {
+            providerDisplayName = 'Castle';
+        } else if (stream.provider === 'StreamFlix') {
+            providerDisplayName = 'StreamFlix';
+        } else if (stream.provider === 'VidLink') {
+            providerDisplayName = 'VidLink';
+        } else if (stream.provider === 'HDHub4u') {
+            providerDisplayName = 'HDHub4u';
+        } else if (stream.provider === 'MoviesDrive') {
+            providerDisplayName = 'MoviesDrive';
+        } else if (stream.provider === 'NetMirror') {
+            providerDisplayName = 'NetMirror';
+        } else if (stream.provider === 'HiAnime') {
+            providerDisplayName = 'HiAnime';
+        } else if (stream.provider === 'XDMovies') {
+            providerDisplayName = 'XDMovies';
+        } else if (stream.provider === 'PStream') {
+            providerDisplayName = '🌐 ShowBox ⚡'; // PStream streams should show as ShowBox with lightning
+        }
+        let nameDisplay;
+        if (stream.provider === 'MoviesDrive') {
+            // For MoviesDrive, use the enhanced stream title that comes from the provider
+            // which includes detailed quality, source, and size information
+            nameDisplay = stream.name || `${providerDisplayName} - ${stream.quality || 'UNK'}`;
+        } else if (stream.provider === 'NetMirror') {
+            // For NetMirror, use the title field from the provider which contains quality info
+            // Fallback to name if title is missing
+            nameDisplay = stream.title || stream.name || `${providerDisplayName} - ${stream.quality || 'UNK'}`;
+        } else if (stream.provider === 'Castle') {
+            // For Castle, use the name field from the provider (includes language)
+            nameDisplay = stream.name || `${providerDisplayName} - ${stream.quality || 'UNK'}`;
+        } else if (stream.provider === 'MovieBox') {
+            // For MovieBox, use the name field from the provider (includes language if detected)
+            nameDisplay = stream.name || `${providerDisplayName} - ${stream.quality || 'UNK'}`;
+        } else { // For other providers
+            const qualityLabel = stream.quality || 'UNK';
+            // Skip flag emoji for PStream streams
+            if (stream.provider === 'PStream') {
+                nameDisplay = `${providerDisplayName} - ${qualityLabel}`;
+            } else if (flagEmoji) {
+                nameDisplay = `${flagEmoji} ${providerDisplayName} - ${qualityLabel}`;
+            } else {
+                nameDisplay = `${providerDisplayName} - ${qualityLabel}`;
+            }
+        }
+        const nameVideoTechTags = [];
+        if (stream.codecs && Array.isArray(stream.codecs)) {
+            // For ShowBox, include all HDR-related codecs
+            if (stream.provider === 'ShowBox') {
+                if (stream.codecs.includes('DV')) {
+                    nameVideoTechTags.push('DV');
+                }
+                if (stream.codecs.includes('HDR10+')) {
+                    nameVideoTechTags.push('HDR10+');
+                }
+                if (stream.codecs.includes('HDR')) {
+                    nameVideoTechTags.push('HDR');
+                }
+            }
+            // For any other provider, use the original behavior
+            else {
+                if (stream.codecs.includes('DV')) {
+                    nameVideoTechTags.push('DV');
+                } else if (stream.codecs.includes('HDR10+')) {
+                    nameVideoTechTags.push('HDR10+');
+                } else if (stream.codecs.includes('HDR')) {
+                    nameVideoTechTags.push('HDR');
+                }
+            }
+        }
+        if (nameVideoTechTags.length > 0) {
+            nameDisplay += ` | ${nameVideoTechTags.join(' | ')}`;
+        }
+        let titleParts = [];
+        if (stream.codecs && Array.isArray(stream.codecs) && stream.codecs.length > 0) {
+            // A more specific order for codecs
+            const codecOrder = ['DV', 'HDR', 'Atmos', 'DTS-HD', 'DTS', 'EAC3', 'AC3', 'H.265', 'H.264', '10-bit'];
+            const sortedCodecs = stream.codecs.slice().sort((a, b) => {
+                const indexA = codecOrder.indexOf(a);
+                const indexB = codecOrder.indexOf(b);
+                if (indexA === -1 && indexB === -1) return 0;
+                if (indexA === -1) return 1;
+                if (indexB === -1) return -1;
+                return indexA - indexB;
+            });
+            titleParts.push(...sortedCodecs);
+        }
+        // Prepare optional quota line for ShowBox personal cookie usage
+        let quotaLine = '';
+        if (stream.size && stream.size !== 'Unknown size' && !stream.size.toLowerCase().includes('n/a')) {
+            let sizeWithAudio = stream.size;
+            // Build quota remaining info for ShowBox/PStream when a personal cookie was selected (on next line)
+            if ((stream.provider === 'ShowBox' || stream.provider === 'PStream') && hasAnyCookies) {
+                const remainingMb = global.currentRequestUserCookieRemainingMB;
+                if (typeof remainingMb === 'number' && remainingMb >= 0) {
+                    const remainingGb = remainingMb >= 1024 ? `${(remainingMb / 1024).toFixed(2)} GB` : `${Math.round(remainingMb)} MB`;
+                    quotaLine = `\nQuota left: ${remainingGb}`;
+                }
+            }
+            titleParts.push(sizeWithAudio);
+        }
+        const titleSecondLine = titleParts.join(" • ");
+        let finalTitle = titleSecondLine ? `${displayTitle}
+${titleSecondLine}` : displayTitle;
+        // Append quota line (if any) right after size/codec line
+        if (quotaLine) {
+            finalTitle += `${quotaLine}`;
+        }
+        // Add warning for ShowBox if no personal cookie is present
+        if (stream.provider === 'ShowBox' && !hasAnyCookies) {
+            const warningMessage = "⚠️ Slow? Add personal FebBox cookie in addon config for faster streaming.";
+            finalTitle += `
+${warningMessage}`;
+        }
+        const stremioStream = {
+            name: nameDisplay,
+            title: finalTitle,
+            url: stream.url,
+            type: stream.type || 'url', // Use provider's type (hls, direct, etc.) or default to 'url'
+            availability: 2
+        };
+        // Include headers if present (critical for providers like NetMirror, MP4Hydra, etc.)
+        if (stream.headers) {
+            stremioStream.headers = stream.headers; // Keep top-level for potential backward compat
+            // Ensure behaviorHints exists
+            if (!stremioStream.behaviorHints) {
+                stremioStream.behaviorHints = {};
+            }
+            // Add headers to behaviorHints (standard Stremio way)
+            stremioStream.behaviorHints.headers = stream.headers;
+            // Also add as proxyHeaders which is often required for some players/versions
+            stremioStream.behaviorHints.proxyHeaders = {
+                request: stream.headers
+            };
+            // Set notWebReady to true as these streams likely require headers which browsers block
+            stremioStream.behaviorHints.notWebReady = true;
+        }
+        // Include behaviorHints if present from provider
+        if (stream.behaviorHints) {
+            stremioStream.behaviorHints = stream.behaviorHints;
+        }
+        // --- Stream Processing Complete ---
+        return stremioStream;
+    });
+    console.log("--- BEGIN Stremio Stream Objects to be sent ---");
+    // Log first 3 streams to keep logs shorter
+    const streamSample = stremioStreamObjects.slice(0, 3);
+    console.log(JSON.stringify(streamSample, null, 2));
+    if (stremioStreamObjects.length > 3) {
+        console.log(`... and ${stremioStreamObjects.length - 3} more streams`);
+    }
+    console.log("--- END Stremio Stream Objects to be sent ---");
+    // No need to clean up global variables since we're not using them anymore
+    const requestEndTime = Date.now();
+    const totalRequestTime = requestEndTime - requestStartTime;
+    console.log(`Request for ${id} completed successfully`);
+    // --- Timings Summary ---
+    console.log("--- Request Timings Summary ---");
+    console.log(JSON.stringify(providerTimings, null, 2));
+    console.log(`Total Request Time: ${formatDuration(totalRequestTime)}`);
+    console.log("-------------------------------");
+    return {
+        streams: stremioStreamObjects
+    };
 });
 
+// Build and export the addon
 module.exports = builder.getInterface();
